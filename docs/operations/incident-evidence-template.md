@@ -1,0 +1,27 @@
+# Incident evidence template
+
+- Incident id:
+- Fecha/hora inicio (UTC):
+- Fecha/hora mitigacion (UTC):
+- Severidad (`SEV-1/2/3`):
+- Runbook aplicado:
+- Resumen breve del impacto:
+- Sintomas observados:
+- Causa raiz (si conocida):
+- Mitigacion ejecutada:
+- Validacion post-mitigacion:
+- Ventana de investigacion por IDs (UTC):
+- Request IDs analizados (1-3):
+- Correlation IDs analizados (1-3):
+- Client correlation IDs (si aplica):
+- Trace source dominante (`inbound`/`generated`/`mixed`):
+- Secuencia correlacionada de eventos (>=3 eventos):
+- Estado de trazabilidad (`available`/`partial`/`trace_ids_not_available`):
+- Motivo si faltan IDs:
+- Timeline de pasos ejecutados (UTC):
+- Que funciono:
+- Que no funciono / lagunas:
+- Riesgo residual:
+- Acciones de seguimiento:
+- Responsable tecnico:
+- Evidencias (logs, screenshots, links CI, query ids):

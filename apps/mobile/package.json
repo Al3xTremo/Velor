@@ -1,0 +1,17 @@
+{
+  "name": "@velor/mobile",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "typecheck": "tsc --project tsconfig.json --noEmit",
+    "build": "tsc --project tsconfig.json --noEmit",
+    "lint": "tsc --project tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@velor/contracts": "workspace:*",
+    "@velor/core": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3"
+  }
+}

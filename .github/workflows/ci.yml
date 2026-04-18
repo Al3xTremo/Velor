@@ -1,0 +1,186 @@
+name: CI
+
+on:
+  pull_request:
+    branches:
+      - main
+      - beta
+      - beta/**
+      - release/**
+  push:
+    branches:
+      - main
+      - beta
+      - beta/**
+      - release/**
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  classify-enforcement:
+    runs-on: ubuntu-latest
+    outputs:
+      run_e2e: ${{ steps.classify.outputs.run_e2e }}
+      reason: ${{ steps.classify.outputs.reason }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Detect web critical paths
+        if: github.event_name == 'pull_request' || github.event_name == 'push'
+        id: filter
+        uses: dorny/paths-filter@v3
+        with:
+          list-files: shell
+          filters: |
+            web_critical:
+              - 'apps/web/**'
+              - 'packages/**'
+              - 'supabase/**'
+              - 'scripts/**'
+              - 'pnpm-lock.yaml'
+              - 'package.json'
+              - '.github/workflows/**'
+
+      - name: Classify E2E enforcement
+        id: classify
+        shell: bash
+        run: |
+          target_branch=""
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            target_branch="${{ github.base_ref }}"
+          else
+            target_branch="${GITHUB_REF#refs/heads/}"
+          fi
+
+          if [[ "$target_branch" == release/* ]] || [[ "$target_branch" == beta ]] || [[ "$target_branch" == beta/* ]]; then
+            echo "run_e2e=true" >> "$GITHUB_OUTPUT"
+            echo "reason=pre_release_branch_mandatory" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if [ "${{ steps.filter.outputs.web_critical }}" = "true" ]; then
+            echo "run_e2e=true" >> "$GITHUB_OUTPUT"
+            echo "reason=critical_web_paths_changed" >> "$GITHUB_OUTPUT"
+          else
+            echo "run_e2e=false" >> "$GITHUB_OUTPUT"
+            echo "reason=no_critical_web_paths" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Publish enforcement summary
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "## CI Enforcement Classification"
+            echo ""
+            echo "- Trigger: ${{ github.event_name }}"
+            echo "- Ref: ${{ github.ref }}"
+            echo "- E2E required: ${{ steps.classify.outputs.run_e2e }}"
+            echo "- Reason: ${{ steps.classify.outputs.reason }}"
+            echo ""
+            if [ "${{ github.event_name }}" = "pull_request" ] || [ "${{ github.event_name }}" = "push" ]; then
+              echo "### Critical web paths"
+              echo "- web_critical: ${{ steps.filter.outputs.web_critical }}"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  validate-quality:
+    needs: classify-enforcement
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Install dependencies
+        run: pnpm install --no-frozen-lockfile
+
+      - name: Run typecheck
+        run: pnpm typecheck
+
+      - name: Run lint
+        run: pnpm lint
+
+      - name: Run security checks
+        run: pnpm security:check
+
+      - name: Run format check
+        run: pnpm format
+
+      - name: Run tests
+        run: pnpm test
+
+      - name: Run build
+        run: pnpm build
+
+  critical-e2e:
+    needs:
+      - classify-enforcement
+      - validate-quality
+    if: needs.classify-enforcement.outputs.run_e2e == 'true'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Install dependencies
+        run: pnpm install --no-frozen-lockfile
+
+      - name: Install Playwright browser
+        run: pnpm e2e:web:install
+
+      - name: Run critical E2E suite
+        run: pnpm e2e:web:ci
+
+  operational-quality-summary:
+    needs:
+      - classify-enforcement
+      - validate-quality
+      - critical-e2e
+    if: always()
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Publish operational quality summary
+        shell: bash
+        run: |
+          {
+            echo "## Operational Quality Status (CI)"
+            echo ""
+            echo "- Trigger: ${{ github.event_name }}"
+            echo "- Ref: ${{ github.ref }}"
+            echo "- Quality gate: ${{ needs.validate-quality.result }} (blocking)"
+            echo "- Critical E2E gate: ${{ needs.critical-e2e.result }}"
+            echo "- E2E policy reason: ${{ needs.classify-enforcement.outputs.reason }}"
+            echo ""
+            echo "Owners:"
+            echo "- platform-oncall: CI quality and E2E gate"
+            echo "- data-oncall: coordinate when failures overlap DB/RLS-sensitive paths"
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -1,0 +1,47 @@
+{
+  "name": "velor",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Velor monorepo: Next.js web-first con Supabase y paquetes compartidos.",
+  "packageManager": "pnpm@9.12.0",
+  "engines": {
+    "node": ">=20.11.0"
+  },
+  "scripts": {
+    "dev": "corepack pnpm --filter @velor/web dev",
+    "typecheck": "corepack pnpm -r typecheck",
+    "build": "corepack pnpm -r build",
+    "lint": "corepack pnpm -r lint && corepack pnpm lint:eslint",
+    "lint:eslint": "corepack pnpm exec eslint \"packages/**/src/**/*.ts\" \"apps/mobile/src/**/*.ts\"",
+    "test": "corepack pnpm -r --if-present test",
+    "e2e:web:prepare": "node ./scripts/testing/prepare-e2e-env.mjs",
+    "e2e:web": "corepack pnpm e2e:web:prepare && corepack pnpm --filter @velor/web e2e",
+    "e2e:web:ci": "corepack pnpm e2e:web:prepare && corepack pnpm --filter @velor/web e2e:ci",
+    "e2e:web:install": "corepack pnpm --filter @velor/web e2e:install",
+    "test:db:web": "node ./scripts/testing/run-db-integration-tests.mjs",
+    "architecture:check-shared": "node ./scripts/architecture/check-shared-boundaries.mjs",
+    "security:check": "node ./scripts/security/check-service-role-usage.mjs",
+    "quality": "corepack pnpm typecheck && corepack pnpm lint && corepack pnpm security:check && corepack pnpm architecture:check-shared && corepack pnpm format && corepack pnpm test && corepack pnpm build",
+    "format": "corepack pnpm prettier --check .",
+    "format:fix": "corepack pnpm prettier --write .",
+    "supabase:start": "corepack pnpm dlx supabase@latest start",
+    "supabase:stop": "corepack pnpm dlx supabase@latest stop",
+    "supabase:status": "corepack pnpm dlx supabase@latest status",
+    "supabase:db:reset": "corepack pnpm dlx supabase@latest db reset",
+    "supabase:types": "corepack pnpm dlx supabase@latest gen types typescript --local > apps/web/src/lib/supabase/database.types.ts",
+    "perf:report": "node ./scripts/observability/perf-report.mjs",
+    "slo:check": "node ./scripts/observability/slo-check.mjs",
+    "alerts:webhook:probe": "node ./scripts/observability/alert-webhook-probe.mjs",
+    "drill:rls-cross-user": "corepack pnpm --filter @velor/web exec node ./scripts/run-rls-cross-user-drill.mjs",
+    "branch-protection:audit": "node ./scripts/operations/audit-branch-protection.mjs",
+    "branch-protection:apply": "node ./scripts/operations/apply-branch-protection.mjs"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.1",
+    "eslint": "^9.39.1",
+    "globals": "^16.4.0",
+    "prettier": "^3.5.3",
+    "typescript-eslint": "^8.46.2",
+    "typescript": "^5.9.3"
+  }
+}

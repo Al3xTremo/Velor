@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "strict": true,
+    "noImplicitOverride": true,
+    "noImplicitReturns": true,
+    "noUncheckedIndexedAccess": true,
+    "noPropertyAccessFromIndexSignature": true,
+    "exactOptionalPropertyTypes": true,
+    "useUnknownInCatchVariables": true,
+    "noFallthroughCasesInSwitch": true,
+    "forceConsistentCasingInFileNames": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "verbatimModuleSyntax": true,
+    "isolatedModules": true,
+    "baseUrl": ".",
+    "paths": {
+      "@velor/core": ["packages/core/src/index.ts"],
+      "@velor/core/*": ["packages/core/src/*"],
+      "@velor/contracts": ["packages/contracts/src/index.ts"],
+      "@velor/contracts/*": ["packages/contracts/src/*"],
+      "@velor/config": ["packages/config/src/index.ts"],
+      "@velor/config/*": ["packages/config/src/*"]
+    }
+  }
+}

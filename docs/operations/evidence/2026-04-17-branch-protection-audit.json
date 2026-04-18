@@ -1,0 +1,60 @@
+{
+  "generatedAt": "2026-04-17T11:55:11.945Z",
+  "repo": "Al3xTremo/Velor",
+  "expectedChecks": {
+    "main": ["CI / validate-quality", "CI / critical-e2e", "DB RLS Integration / db-rls-check"],
+    "beta": ["CI / validate-quality", "CI / critical-e2e", "DB RLS Integration / db-rls-check"],
+    "release_pattern": [
+      "CI / validate-quality",
+      "CI / critical-e2e",
+      "DB RLS Integration / db-rls-check"
+    ]
+  },
+  "results": {
+    "main": {
+      "branch": "main",
+      "configured": false,
+      "actualChecks": [],
+      "missing": [
+        "CI / validate-quality",
+        "CI / critical-e2e",
+        "DB RLS Integration / db-rls-check"
+      ],
+      "extras": [],
+      "ok": false,
+      "error": "Command failed: gh api \"repos/Al3xTremo/Velor/branches/main/protection\"\ngh: Upgrade to GitHub Pro or make this repository public to enable this feature. (HTTP 403)\n"
+    },
+    "beta": {
+      "branch": "beta",
+      "configured": false,
+      "actualChecks": [],
+      "missing": [
+        "CI / validate-quality",
+        "CI / critical-e2e",
+        "DB RLS Integration / db-rls-check"
+      ],
+      "extras": [],
+      "ok": false,
+      "error": "Command failed: gh api \"repos/Al3xTremo/Velor/branches/beta/protection\"\ngh: Upgrade to GitHub Pro or make this repository public to enable this feature. (HTTP 403)\n"
+    },
+    "release_pattern": {
+      "configured": false,
+      "rulesetName": null,
+      "actualChecks": [],
+      "missing": [
+        "CI / validate-quality",
+        "CI / critical-e2e",
+        "DB RLS Integration / db-rls-check"
+      ],
+      "extras": [],
+      "ok": false,
+      "error": "Command failed: gh api \"repos/Al3xTremo/Velor/rulesets\"\ngh: Upgrade to GitHub Pro or make this repository public to enable this feature. (HTTP 403)\n"
+    }
+  },
+  "overallOk": false,
+  "notes": [
+    "Failed to read branch protection for main.",
+    "Failed to read branch protection for beta.",
+    "Failed to read repository rulesets for release/* policy."
+  ]
+}

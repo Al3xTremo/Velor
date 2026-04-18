@@ -1,0 +1,188 @@
+name: DB RLS Integration
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "30 7 * * *"
+  pull_request:
+    branches:
+      - main
+      - beta
+      - beta/**
+      - release/**
+    types:
+      - opened
+      - synchronize
+      - reopened
+      - ready_for_review
+  push:
+    branches:
+      - main
+      - beta
+      - beta/**
+      - release/**
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: db-rls-integration-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  classify-sensitive:
+    runs-on: ubuntu-latest
+    outputs:
+      should_run: ${{ steps.classify.outputs.should_run }}
+      reason: ${{ steps.classify.outputs.reason }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Detect sensitive changes
+        if: github.event_name == 'pull_request' || github.event_name == 'push'
+        id: filter
+        uses: dorny/paths-filter@v3
+        with:
+          list-files: shell
+          filters: |
+            supabase_migrations:
+              - 'supabase/migrations/**'
+              - 'supabase/tests/**'
+            sensitive_server_data:
+              - 'apps/web/src/server/repositories/**'
+              - 'apps/web/src/server/application/**'
+              - 'apps/web/src/features/auth/actions.ts'
+              - 'apps/web/src/features/transactions/actions.ts'
+              - 'apps/web/src/features/budgets/actions.ts'
+              - 'apps/web/src/features/goals/actions.ts'
+              - 'apps/web/src/features/onboarding/actions.ts'
+            security_observability:
+              - 'apps/web/src/server/security/**'
+              - 'apps/web/src/server/observability/**'
+              - 'apps/web/src/lib/supabase/**'
+              - 'apps/web/src/lib/env.ts'
+              - 'packages/config/src/env.ts'
+              - 'scripts/security/**'
+              - 'scripts/testing/run-db-integration-tests.mjs'
+
+      - name: Classify gate requirement
+        id: classify
+        shell: bash
+        run: |
+          target_branch=""
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            target_branch="${{ github.base_ref }}"
+          else
+            target_branch="${GITHUB_REF#refs/heads/}"
+          fi
+
+          if [ "${{ github.event_name }}" = "schedule" ] || [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "should_run=true" >> "$GITHUB_OUTPUT"
+            echo "reason=scheduled_or_manual" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if [[ "$target_branch" == release/* ]] || [[ "$target_branch" == beta ]] || [[ "$target_branch" == beta/* ]]; then
+            echo "should_run=true" >> "$GITHUB_OUTPUT"
+            echo "reason=pre_release_branch_mandatory" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if [ "${{ steps.filter.outputs.supabase_migrations }}" = "true" ] || [ "${{ steps.filter.outputs.sensitive_server_data }}" = "true" ] || [ "${{ steps.filter.outputs.security_observability }}" = "true" ]; then
+            echo "should_run=true" >> "$GITHUB_OUTPUT"
+            echo "reason=sensitive_paths_detected" >> "$GITHUB_OUTPUT"
+          else
+            echo "should_run=false" >> "$GITHUB_OUTPUT"
+            echo "reason=no_sensitive_paths" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Publish sensitivity summary
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "## DB/RLS Sensitive Gate Classification"
+            echo ""
+            echo "- Trigger: ${{ github.event_name }}"
+            echo "- Should run DB/RLS integration: ${{ steps.classify.outputs.should_run }}"
+            echo "- Reason: ${{ steps.classify.outputs.reason }}"
+            echo ""
+            if [ "${{ github.event_name }}" = "pull_request" ] || [ "${{ github.event_name }}" = "push" ]; then
+              echo "### Sensitive path groups"
+              echo "- supabase_migrations: ${{ steps.filter.outputs.supabase_migrations }}"
+              echo "- sensitive_server_data: ${{ steps.filter.outputs.sensitive_server_data }}"
+              echo "- security_observability: ${{ steps.filter.outputs.security_observability }}"
+              echo ""
+              echo "### Matched files"
+              echo '```'
+              printf "%s\n" "${{ steps.filter.outputs.supabase_migrations_files }}"
+              printf "%s\n" "${{ steps.filter.outputs.sensitive_server_data_files }}"
+              printf "%s\n" "${{ steps.filter.outputs.security_observability_files }}"
+              echo '```'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  db-rls-check:
+    needs: classify-sensitive
+    if: needs.classify-sensitive.outputs.should_run == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Install dependencies
+        run: pnpm install --no-frozen-lockfile
+
+      - name: Run real DB/RLS integration suite
+        run: |
+          mkdir -p tmp
+          set -o pipefail
+          corepack pnpm test:db:web 2>&1 | tee tmp/db-rls-integration.log
+
+      - name: Upload DB/RLS test log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: db-rls-integration-log
+          path: tmp/db-rls-integration.log
+          if-no-files-found: warn
+
+      - name: Publish workflow summary
+        if: always()
+        shell: bash
+        run: |
+          if [ -f tmp/db-rls-integration.log ]; then
+            {
+              echo "## DB/RLS Integration Result"
+              echo ""
+              echo "- Gate reason: ${{ needs.classify-sensitive.outputs.reason }}"
+              echo "- Trigger: ${{ github.event_name }}"
+              echo "- Ref: ${{ github.ref }}"
+              echo "- Log artifact: db-rls-integration-log"
+              echo ""
+              echo "Last log lines:"
+              echo '```'
+              tail -n 30 tmp/db-rls-integration.log
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "## DB/RLS Integration Result" >> "$GITHUB_STEP_SUMMARY"
+            echo "No log file generated." >> "$GITHUB_STEP_SUMMARY"
+          fi

@@ -1,0 +1,57 @@
+{
+  "generatedAt": "2026-04-17T22:15:24.330Z",
+  "repo": "Al3xTremo/Velor",
+  "source": {
+    "workflowDispatchAttempt": "gh workflow run \"Operational Evidence Snapshot\" --repo Al3xTremo/Velor",
+    "workflowDispatchStatus": "failed_workflow_not_found",
+    "branchProtectionAudit": "tmp/ops/branch-protection-audit-2026-04-18-continuous.json",
+    "repoMeta": "tmp/ops/continuous-snapshot-repo-meta-2026-04-18.json",
+    "workflowsInventory": "tmp/ops/continuous-snapshot-workflows-2026-04-18.json",
+    "runsInventory": "tmp/ops/continuous-snapshot-runs-2026-04-18.json"
+  },
+  "snapshot": {
+    "branchProtection": {
+      "overallOk": false,
+      "main": {
+        "ok": false,
+        "configured": false,
+        "error": "HTTP 403"
+      },
+      "beta": {
+        "ok": false,
+        "configured": false,
+        "error": "HTTP 403"
+      },
+      "release_pattern": {
+        "ok": false,
+        "configured": false,
+        "error": "HTTP 403"
+      }
+    },
+    "remoteRepo": {
+      "visibility": "PRIVATE",
+      "defaultBranchName": "",
+      "isPrivate": true
+    },
+    "actions": {
+      "workflowsTotal": 0,
+      "runsTotal": 0
+    }
+  },
+  "classification": {
+    "continuousEvidenceRun": "inconclusive",
+    "governance": "fail",
+    "driftDetected": true,
+    "preReleaseImpact": "hold"
+  },
+  "review": {
+    "owner": "platform-oncall",
+    "coOwner": "data-oncall",
+    "recommendedActions": [
+      "habilitar capacidad externa de branch protection/rulesets o cambiar visibilidad del repo",
+      "crear/push de ramas remotas main y beta",
+      "publicar workflows remotos para habilitar snapshots y checks concluyentes",
+      "re-ejecutar snapshot continuo y branch-protection:audit con evidencia de cierre"
+    ]
+  }
+}

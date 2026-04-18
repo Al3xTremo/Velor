@@ -1,0 +1,121 @@
+name: Operational Quality Overview
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 9 * * *"
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  overview:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Build operational quality snapshot
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const workflows = [
+              { file: "ci.yml", label: "CI" },
+              { file: "db-rls-integration.yml", label: "DB RLS Integration" },
+              { file: "performance-slo-check.yml", label: "Performance SLO Check" },
+              { file: "alerting-health-probe.yml", label: "Alerting Health Probe" },
+            ];
+
+            const contexts = [
+              {
+                id: "main",
+                label: "main",
+                predicate: (run) => run.head_branch === "main" && ["push", "pull_request"].includes(run.event),
+              },
+              {
+                id: "beta",
+                label: "beta|beta/*",
+                predicate: (run) =>
+                  (run.head_branch === "beta" || (run.head_branch ?? "").startsWith("beta/")) &&
+                  ["push", "pull_request"].includes(run.event),
+              },
+              {
+                id: "release",
+                label: "release/*",
+                predicate: (run) =>
+                  (run.head_branch ?? "").startsWith("release/") && ["push", "pull_request"].includes(run.event),
+              },
+              {
+                id: "scheduled",
+                label: "scheduled controls",
+                predicate: (run) => run.event === "schedule",
+              },
+            ];
+
+            const statusSymbol = (status) => {
+              if (status === "success") {
+                return "green";
+              }
+              if (status === "in_progress" || status === "queued") {
+                return "pending";
+              }
+              if (status === "no-runs") {
+                return "no-conclusive";
+              }
+              return "red";
+            };
+
+            const asCell = (run) => {
+              if (!run) {
+                return "no-runs";
+              }
+
+              const status = run.conclusion ?? run.status ?? "unknown";
+              const color = statusSymbol(status);
+              return `${color}: [${status}](${run.html_url})`;
+            };
+
+            const contextRows = [];
+            for (const workflow of workflows) {
+              const runs = await github.rest.actions.listWorkflowRuns({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                workflow_id: workflow.file,
+                per_page: 100,
+              });
+
+              const allRuns = runs.data.workflow_runs ?? [];
+              const row = {
+                workflow: workflow.label,
+              };
+
+              for (const envContext of contexts) {
+                const run = allRuns.find((candidate) => envContext.predicate(candidate));
+                row[envContext.id] = asCell(run);
+              }
+
+              contextRows.push(row);
+            }
+
+            const headers = ["Workflow", ...contexts.map((envContext) => envContext.label)];
+            const tableRows = contextRows.map((row) => {
+              return [row.workflow, ...contexts.map((envContext) => row[envContext.id])];
+            });
+
+            core.summary
+              .addHeading("Operational Quality Snapshot")
+              .addRaw("\n")
+              .addRaw(`- Trigger: ${context.eventName}\n`)
+              .addRaw(`- Generated at: ${new Date().toISOString()}\n\n`)
+              .addRaw("Legend: green=success, red=failure/cancelled/timed_out, pending=in_progress/queued, no-conclusive=no-runs for that branch/context in fetched history.\n\n")
+              .addTable([
+                headers,
+                ...tableRows,
+              ])
+              .addRaw("\nInterpretation:\n")
+              .addRaw("- main/beta/release rows align with branch protection required checks for merge/readiness contexts.\n")
+              .addRaw("- scheduled controls row tracks periodic reliability controls (DB/RLS, SLO, alerting probe).\n")
+              .addRaw("- no-conclusive does not mean green; it means no applicable run found in current snapshot window.\n\n")
+              .addRaw("Owners:\n")
+              .addRaw("- platform-oncall: global operational quality view\n")
+              .addRaw("- data-oncall: DB/RLS + data-related SLO follow-up\n")
+              .write();

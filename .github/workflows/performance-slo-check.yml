@@ -1,0 +1,127 @@
+name: Performance SLO Check
+
+on:
+  workflow_dispatch:
+    inputs:
+      profile:
+        description: "SLO profile"
+        required: true
+        default: "beta"
+        type: choice
+        options:
+          - beta
+          - staging
+          - local
+      require_log_url:
+        description: "Fail if PERF_SLO_LOG_URL is missing"
+        required: true
+        default: true
+        type: boolean
+  schedule:
+    - cron: "0 8 * * 1"
+  push:
+    branches:
+      - beta
+      - beta/**
+      - release/**
+
+jobs:
+  slo-check:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Classify SLO enforcement
+        id: classify
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "profile=${{ inputs.profile }}" >> "$GITHUB_OUTPUT"
+            echo "require_log_url=${{ inputs.require_log_url }}" >> "$GITHUB_OUTPUT"
+            echo "mode=manual" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if [ "${{ github.event_name }}" = "schedule" ]; then
+            echo "profile=beta" >> "$GITHUB_OUTPUT"
+            echo "require_log_url=true" >> "$GITHUB_OUTPUT"
+            echo "mode=scheduled" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          branch="${GITHUB_REF#refs/heads/}"
+          if [[ "$branch" == release/* ]]; then
+            echo "profile=staging" >> "$GITHUB_OUTPUT"
+          else
+            echo "profile=beta" >> "$GITHUB_OUTPUT"
+          fi
+          echo "require_log_url=true" >> "$GITHUB_OUTPUT"
+          echo "mode=pre_release_push" >> "$GITHUB_OUTPUT"
+
+      - name: Fetch observability log export
+        id: fetch_logs
+        env:
+          PERF_SLO_LOG_URL: ${{ secrets.PERF_SLO_LOG_URL }}
+          SLO_PROFILE: ${{ steps.classify.outputs.profile }}
+          REQUIRE_LOG_URL: ${{ steps.classify.outputs.require_log_url }}
+        run: |
+          mkdir -p tmp
+          if [ -z "$PERF_SLO_LOG_URL" ]; then
+            if [ "$REQUIRE_LOG_URL" = "true" ]; then
+              echo "::error::PERF_SLO_LOG_URL is required for enforced SLO profile ($SLO_PROFILE)."
+              exit 1
+            fi
+
+            echo "::warning::PERF_SLO_LOG_URL is not configured. Skipping automated SLO check."
+            echo "has_logs=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          curl -fsSL "$PERF_SLO_LOG_URL" -o tmp/velor-observability.ndjson
+          echo "has_logs=true" >> "$GITHUB_OUTPUT"
+
+      - name: SLO warning evaluation
+        if: steps.fetch_logs.outputs.has_logs == 'true'
+        continue-on-error: true
+        run: |
+          corepack pnpm slo:check --file ./tmp/velor-observability.ndjson --json-out ./tmp/slo-report.json --profile "${{ steps.classify.outputs.profile }}" --fail-on warning
+
+      - name: SLO hard-breach enforcement
+        if: steps.fetch_logs.outputs.has_logs == 'true'
+        run: |
+          corepack pnpm slo:check --file ./tmp/velor-observability.ndjson --json-out ./tmp/slo-report.json --profile "${{ steps.classify.outputs.profile }}" --fail-on hard
+
+      - name: Upload SLO report artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: performance-slo-report
+          path: tmp/slo-report.json
+          if-no-files-found: ignore
+
+      - name: Publish SLO enforcement summary
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "## Performance SLO Enforcement"
+            echo ""
+            echo "- Trigger: ${{ github.event_name }}"
+            echo "- Ref: ${{ github.ref }}"
+            echo "- Mode: ${{ steps.classify.outputs.mode }}"
+            echo "- Profile: ${{ steps.classify.outputs.profile }}"
+            echo "- require_log_url: ${{ steps.classify.outputs.require_log_url }}"
+            echo "- Log export available: ${{ steps.fetch_logs.outputs.has_logs }}"
+            echo "- Artifact: performance-slo-report"
+            echo ""
+            echo "Owners:"
+            echo "- platform-oncall: primary"
+            echo "- data-oncall: support when query/data shape contributes"
+          } >> "$GITHUB_STEP_SUMMARY"

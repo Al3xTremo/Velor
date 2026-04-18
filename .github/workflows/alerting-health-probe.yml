@@ -1,0 +1,64 @@
+name: Alerting Health Probe
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_env:
+        description: "Alerting environment label"
+        required: true
+        default: "beta-internal"
+        type: string
+  schedule:
+    - cron: "30 8 * * 1"
+
+jobs:
+  probe-alerting-channel:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Install dependencies
+        run: pnpm install --no-frozen-lockfile
+
+      - name: Probe alerting webhook
+        env:
+          OBS_ALERT_WEBHOOK_URL: ${{ secrets.OBS_ALERT_WEBHOOK_URL }}
+          OBS_ALERT_HEALTH_WEBHOOK_URL: ${{ secrets.OBS_ALERT_HEALTH_WEBHOOK_URL }}
+          OBS_ALERT_ENV: ${{ github.event_name == 'workflow_dispatch' && inputs.target_env || 'beta-internal' }}
+        run: |
+          if [ -z "$OBS_ALERT_WEBHOOK_URL" ] && [ -z "$OBS_ALERT_HEALTH_WEBHOOK_URL" ]; then
+            echo "::error::At least one secret is required: OBS_ALERT_WEBHOOK_URL or OBS_ALERT_HEALTH_WEBHOOK_URL."
+            exit 1
+          fi
+
+          corepack pnpm alerts:webhook:probe
+
+      - name: Publish alerting probe summary
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "## Alerting Health Probe"
+            echo ""
+            echo "- Trigger: ${{ github.event_name }}"
+            echo "- Target env: ${{ github.event_name == 'workflow_dispatch' && inputs.target_env || 'beta-internal' }}"
+            echo "- Primary configured: ${{ secrets.OBS_ALERT_WEBHOOK_URL != '' }}"
+            echo "- Secondary configured: ${{ secrets.OBS_ALERT_HEALTH_WEBHOOK_URL != '' }}"
+            echo "- Result: ${{ job.status }}"
+            echo ""
+            echo "Owners:"
+            echo "- platform-oncall: primary"
+            echo "- security-oncall: secondary when auth anomaly alerts are affected"
+          } >> "$GITHUB_STEP_SUMMARY"
