@@ -11,6 +11,14 @@ const run = (command, options = {}) => {
   });
 };
 
+const runInherit = (command, options = {}) => {
+  return execSync(command, {
+    cwd: root,
+    stdio: "inherit",
+    ...options,
+  });
+};
+
 const parseEnvOutput = (raw) => {
   const output = {};
   const lines = raw.split(/\r?\n/).map((line) => line.trim());
@@ -38,13 +46,92 @@ const requiredKeys = [
   "SUPABASE_SERVICE_ROLE_KEY",
 ];
 
-const main = () => {
+const parsePositiveInt = (value, fallback) => {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return fallback;
+  }
+
+  return Math.floor(parsed);
+};
+
+const delay = (ms) => {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+};
+
+const runWithRetry = async ({ label, command, attempts, retryDelayMs }) => {
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      runInherit(command);
+      return;
+    } catch (error) {
+      if (attempt === attempts) {
+        const message = error instanceof Error ? error.message : "unknown_error";
+        throw new Error(`[db-integration] ${label} failed after ${attempts} attempts (${message})`);
+      }
+
+      const message = error instanceof Error ? error.message : "unknown_error";
+      console.warn(
+        `[db-integration] ${label} attempt ${attempt}/${attempts} failed (${message}); retrying in ${retryDelayMs}ms...`
+      );
+      await delay(retryDelayMs);
+    }
+  }
+};
+
+const waitForSupabaseReady = async (baseUrl, serviceRoleKey) => {
+  const timeoutMs = Number(process.env["DB_TEST_READY_TIMEOUT_MS"] ?? "180000");
+  const deadline = Date.now() + timeoutMs;
+  let lastStatus = "uninitialized";
+
+  while (Date.now() < deadline) {
+    try {
+      const headers = {
+        apikey: serviceRoleKey,
+        authorization: `Bearer ${serviceRoleKey}`,
+      };
+
+      const [rest, authAdmin] = await Promise.all([
+        fetch(`${baseUrl}/rest/v1/`, { headers }),
+        fetch(`${baseUrl}/auth/v1/admin/users?page=1&per_page=1`, { headers }),
+      ]);
+
+      lastStatus = `rest=${rest.status} auth=${authAdmin.status}`;
+      if (rest.ok && authAdmin.ok) {
+        return;
+      }
+    } catch (error) {
+      lastStatus = error instanceof Error ? error.message : "unknown_error";
+    }
+
+    await delay(2000);
+  }
+
+  throw new Error(`[db-integration] Supabase readiness probe timed out (${lastStatus})`);
+};
+
+const main = async () => {
+  const startAttempts = parsePositiveInt(process.env["DB_TEST_START_MAX_ATTEMPTS"], 2);
+  const startRetryDelayMs = parsePositiveInt(process.env["DB_TEST_START_RETRY_DELAY_MS"], 5000);
+  const resetAttempts = parsePositiveInt(process.env["DB_TEST_RESET_MAX_ATTEMPTS"], 3);
+  const resetRetryDelayMs = parsePositiveInt(process.env["DB_TEST_RESET_RETRY_DELAY_MS"], 8000);
+
   console.log("[db-integration] starting Supabase local stack...");
-  execSync("corepack pnpm dlx supabase@latest start", { cwd: root, stdio: "inherit" });
+  await runWithRetry({
+    label: "supabase start",
+    command: "corepack pnpm dlx supabase@latest start",
+    attempts: startAttempts,
+    retryDelayMs: startRetryDelayMs,
+  });
 
   if (process.env["DB_TEST_SKIP_RESET"] !== "1") {
     console.log("[db-integration] resetting database for deterministic run...");
-    execSync("corepack pnpm dlx supabase@latest db reset", { cwd: root, stdio: "inherit" });
+    await runWithRetry({
+      label: "supabase db reset",
+      command: "corepack pnpm dlx supabase@latest db reset",
+      attempts: resetAttempts,
+      retryDelayMs: resetRetryDelayMs,
+    });
   } else {
     console.log("[db-integration] skipping db reset due to DB_TEST_SKIP_RESET=1");
   }
@@ -60,10 +147,12 @@ const main = () => {
     }
   }
 
+  console.log("[db-integration] waiting for Supabase auth/rest readiness...");
+  await waitForSupabaseReady(envMap.NEXT_PUBLIC_SUPABASE_URL, envMap.SUPABASE_SERVICE_ROLE_KEY);
+
   const command = "corepack pnpm --filter @velor/web test:db";
-  execSync(command, {
+  runInherit(command, {
     cwd: root,
-    stdio: "inherit",
     env: {
       ...process.env,
       NODE_ENV: "test",
@@ -77,10 +166,8 @@ const main = () => {
   });
 };
 
-try {
-  main();
-} catch (error) {
+main().catch((error) => {
   const message = error instanceof Error ? error.message : "unknown_error";
   console.error(`[db-integration] failed: ${message}`);
   process.exit(1);
-}
+});
