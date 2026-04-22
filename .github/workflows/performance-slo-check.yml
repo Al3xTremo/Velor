@@ -25,6 +25,9 @@ on:
       - beta/**
       - release/**
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
 jobs:
   slo-check:
     runs-on: ubuntu-latest
