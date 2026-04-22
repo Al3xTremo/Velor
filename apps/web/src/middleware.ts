@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto";
 import { NextResponse, type NextRequest } from "next/server";
 
 const TRACE_ID_MAX_LENGTH = 80;
@@ -17,7 +16,12 @@ const normalizeTraceId = (value: string | null) => {
 };
 
 const generatedRequestId = () => {
-  return `req_${randomUUID().replace(/-/g, "").slice(0, 16)}`;
+  const uuid =
+    typeof globalThis.crypto?.randomUUID === "function"
+      ? globalThis.crypto.randomUUID()
+      : `${Date.now().toString(16)}${Math.random().toString(16).slice(2)}`;
+
+  return `req_${uuid.replace(/-/g, "").slice(0, 16)}`;
 };
 
 export function middleware(request: NextRequest) {
