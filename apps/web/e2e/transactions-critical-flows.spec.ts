@@ -86,6 +86,9 @@ test.describe("critical transaction and dashboard flows", () => {
     await expect(page.getByText("Transaccion actualizada correctamente.")).toBeVisible();
     await expect(page.locator("tr", { hasText: "€240.00" })).toBeVisible();
 
+    page.once("dialog", async (dialog) => {
+      await dialog.accept();
+    });
     await page
       .locator("tr", { hasText: transactionName })
       .getByRole("button", { name: "Eliminar" })
