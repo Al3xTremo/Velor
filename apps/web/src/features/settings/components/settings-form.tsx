@@ -24,7 +24,9 @@ export const SettingsForm = ({ initialValues }: SettingsFormProps) => {
 
   return (
     <Card className="p-5">
-      <h2 className="font-display text-lg font-semibold text-velor-text">Perfil y preferencias base</h2>
+      <h2 className="font-display text-lg font-semibold text-velor-text">
+        Perfil y preferencias base
+      </h2>
       <p className="mt-1 text-sm text-velor-muted">
         Edita tu nombre, moneda principal, zona horaria y saldo inicial sin salir de esta pantalla.
       </p>
