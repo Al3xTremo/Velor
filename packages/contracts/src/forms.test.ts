@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { budgetLimitFormSchema, transactionFormSchema } from "./forms";
+import { budgetLimitFormSchema, subscriptionRuleFormSchema, transactionFormSchema } from "./forms";
 
 describe("contracts/forms", () => {
   it("rejects salary transactions when kind is not income", () => {
@@ -36,6 +36,36 @@ describe("contracts/forms", () => {
       month: "2026-04",
       categoryId: "rent",
       limitAmount: 0,
+    });
+
+    expect(parsed.success).toBe(false);
+  });
+
+  it("accepts a valid recurring rule payload", () => {
+    const parsed = subscriptionRuleFormSchema.safeParse({
+      name: "Internet hogar",
+      amount: "49.99",
+      categoryId: "rent",
+      interval: "monthly",
+      nextChargeOn: "2026-05-10",
+      isActive: "true",
+    });
+
+    expect(parsed.success).toBe(true);
+    if (parsed.success) {
+      expect(parsed.data.amount).toBe(49.99);
+      expect(parsed.data.isActive).toBe(true);
+    }
+  });
+
+  it("rejects recurring rules with invalid interval", () => {
+    const parsed = subscriptionRuleFormSchema.safeParse({
+      name: "Internet hogar",
+      amount: 49.99,
+      categoryId: "rent",
+      interval: "daily",
+      nextChargeOn: "2026-05-10",
+      isActive: true,
     });
 
     expect(parsed.success).toBe(false);
