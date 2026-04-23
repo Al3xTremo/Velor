@@ -532,7 +532,10 @@ const run = async () => {
     configuredTargets: enforcedLatencyConfiguredTargets,
     coveredTargets: enforcedLatencyCoveredTargets,
     insufficientTargets: enforcedLatencyConfiguredTargets - enforcedLatencyCoveredTargets,
-    status: coverageStatusFromCounts(enforcedLatencyCoveredTargets, enforcedLatencyConfiguredTargets),
+    status: coverageStatusFromCounts(
+      enforcedLatencyCoveredTargets,
+      enforcedLatencyConfiguredTargets
+    ),
     targets: enforcedLatencyCoverageTargets,
   };
 
@@ -544,7 +547,8 @@ const run = async () => {
     targets: enforcedErrorCoverageTargets,
   };
 
-  const enforcedConfiguredTargets = enforcedLatencyConfiguredTargets + enforcedErrorConfiguredTargets;
+  const enforcedConfiguredTargets =
+    enforcedLatencyConfiguredTargets + enforcedErrorConfiguredTargets;
   const enforcedCoveredTargets = enforcedLatencyCoveredTargets + enforcedErrorCoveredTargets;
 
   report.dataQuality.enforcedCoverage.overall = {
