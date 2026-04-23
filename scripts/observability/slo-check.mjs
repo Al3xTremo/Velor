@@ -101,6 +101,8 @@ const errorRateDomains = [
   { id: "goals", enforcement: "observational" },
 ];
 
+const MIN_ERROR_RATE_SAMPLES = 20;
+
 const severityRank = {
   ok: 0,
   info: 0,
@@ -110,6 +112,22 @@ const severityRank = {
 
 const maxSeverity = (a, b) => {
   return severityRank[b] > severityRank[a] ? b : a;
+};
+
+const coverageStatusFromCounts = (coveredTargets, configuredTargets) => {
+  if (configuredTargets === 0) {
+    return "n/a";
+  }
+
+  if (coveredTargets === 0) {
+    return "none";
+  }
+
+  if (coveredTargets === configuredTargets) {
+    return "full";
+  }
+
+  return "partial";
 };
 
 const percentile = (sortedValues, p) => {
@@ -244,18 +262,44 @@ const run = async () => {
     errorRate: [],
     dataQuality: {
       totalObservabilityEvents: 0,
+      enforcedCoverage: {
+        latency: {
+          configuredTargets: 0,
+          coveredTargets: 0,
+          insufficientTargets: 0,
+          status: "n/a",
+          targets: [],
+        },
+        errorRate: {
+          configuredTargets: 0,
+          coveredTargets: 0,
+          insufficientTargets: 0,
+          status: "n/a",
+          targets: [],
+        },
+        overall: {
+          configuredTargets: 0,
+          coveredTargets: 0,
+          insufficientTargets: 0,
+          status: "n/a",
+        },
+      },
       insufficientChecks: [],
     },
     summary: {
       severity: "ok",
       warnings: 0,
       hardBreaches: 0,
+      insufficientChecks: 0,
+      enforcedCoverageStatus: "n/a",
     },
   };
 
   let overallSeverity = "ok";
   const insufficientEnforcedLatency = [];
   const insufficientEnforcedErrors = [];
+  const enforcedLatencyCoverageTargets = [];
+  const enforcedErrorCoverageTargets = [];
 
   for (const metric of latencyMetrics) {
     const matchingKeys = Array.from(latencySamples.keys())
@@ -332,6 +376,18 @@ const run = async () => {
     });
 
     const evaluatedWindows = windows.filter((window) => window.status !== "insufficient_samples");
+    if (metric.enforcement === "enforced") {
+      enforcedLatencyCoverageTargets.push({
+        target: metric.id,
+        kind: "latency",
+        status: evaluatedWindows.length > 0 ? "covered" : "insufficient",
+        observedWindows: windows.length,
+        evaluatedWindows: evaluatedWindows.length,
+        observedSamples: sortedAll.length,
+        minSamplesPerWindow: metric.minSamples,
+      });
+    }
+
     if (
       profileArg !== "local" &&
       metric.enforcement === "enforced" &&
@@ -342,6 +398,15 @@ const run = async () => {
         kind: "latency",
         target: metric.id,
         reason: "no_window_with_min_samples",
+        classification: "insufficient_samples_latency_enforced",
+        enforcement: metric.enforcement,
+        observedWindows: windows.length,
+        evaluatedWindows: evaluatedWindows.length,
+        observedSamples: sortedAll.length,
+        minSamplesPerWindow: metric.minSamples,
+        severityImpact: "warning_or_hard",
+        action:
+          "Collect enough telemetry for at least one window meeting minSamples and rerun SLO check.",
       });
     }
 
@@ -363,7 +428,7 @@ const run = async () => {
       const errors = domainErrors.get(key) ?? 0;
       const ratio = total > 0 ? (errors / total) * 100 : 0;
 
-      if (total < 20) {
+      if (total < MIN_ERROR_RATE_SAMPLES) {
         windows.push({
           windowStart,
           total,
@@ -407,21 +472,87 @@ const run = async () => {
     });
 
     const evaluatedWindows = windows.filter((window) => window.status !== "insufficient_samples");
+    if (domain.enforcement === "enforced") {
+      const observedTotal = windows.reduce((sum, window) => sum + window.total, 0);
+      const observedErrors = windows.reduce((sum, window) => sum + window.errors, 0);
+      enforcedErrorCoverageTargets.push({
+        target: domain.id,
+        kind: "error_rate",
+        status: evaluatedWindows.length > 0 ? "covered" : "insufficient",
+        observedWindows: windows.length,
+        evaluatedWindows: evaluatedWindows.length,
+        observedSamples: observedTotal,
+        observedErrors,
+        minSamplesPerWindow: MIN_ERROR_RATE_SAMPLES,
+      });
+    }
+
     if (
       profileArg !== "local" &&
       domain.enforcement === "enforced" &&
       evaluatedWindows.length === 0
     ) {
+      const observedTotal = windows.reduce((sum, window) => sum + window.total, 0);
+      const observedErrors = windows.reduce((sum, window) => sum + window.errors, 0);
       insufficientEnforcedErrors.push(domain.id);
       report.dataQuality.insufficientChecks.push({
         kind: "error_rate",
         target: domain.id,
         reason: "no_window_with_min_samples",
+        classification: "insufficient_samples_error_rate_enforced",
+        enforcement: domain.enforcement,
+        observedWindows: windows.length,
+        evaluatedWindows: evaluatedWindows.length,
+        observedSamples: observedTotal,
+        observedErrors,
+        minSamplesPerWindow: MIN_ERROR_RATE_SAMPLES,
+        severityImpact: "warning",
+        action:
+          "Collect enough request volume for at least one window meeting minSamples and rerun SLO check.",
       });
     }
 
     overallSeverity = maxSeverity(overallSeverity, domainSeverity);
   }
+
+  const enforcedLatencyConfiguredTargets = latencyMetrics.filter(
+    (metric) => metric.enforcement === "enforced"
+  ).length;
+  const enforcedLatencyCoveredTargets = enforcedLatencyCoverageTargets.filter(
+    (target) => target.status === "covered"
+  ).length;
+  const enforcedErrorConfiguredTargets = errorRateDomains.filter(
+    (domain) => domain.enforcement === "enforced"
+  ).length;
+  const enforcedErrorCoveredTargets = enforcedErrorCoverageTargets.filter(
+    (target) => target.status === "covered"
+  ).length;
+
+  report.dataQuality.enforcedCoverage.latency = {
+    configuredTargets: enforcedLatencyConfiguredTargets,
+    coveredTargets: enforcedLatencyCoveredTargets,
+    insufficientTargets: enforcedLatencyConfiguredTargets - enforcedLatencyCoveredTargets,
+    status: coverageStatusFromCounts(enforcedLatencyCoveredTargets, enforcedLatencyConfiguredTargets),
+    targets: enforcedLatencyCoverageTargets,
+  };
+
+  report.dataQuality.enforcedCoverage.errorRate = {
+    configuredTargets: enforcedErrorConfiguredTargets,
+    coveredTargets: enforcedErrorCoveredTargets,
+    insufficientTargets: enforcedErrorConfiguredTargets - enforcedErrorCoveredTargets,
+    status: coverageStatusFromCounts(enforcedErrorCoveredTargets, enforcedErrorConfiguredTargets),
+    targets: enforcedErrorCoverageTargets,
+  };
+
+  const enforcedConfiguredTargets = enforcedLatencyConfiguredTargets + enforcedErrorConfiguredTargets;
+  const enforcedCoveredTargets = enforcedLatencyCoveredTargets + enforcedErrorCoveredTargets;
+
+  report.dataQuality.enforcedCoverage.overall = {
+    configuredTargets: enforcedConfiguredTargets,
+    coveredTargets: enforcedCoveredTargets,
+    insufficientTargets: enforcedConfiguredTargets - enforcedCoveredTargets,
+    status: coverageStatusFromCounts(enforcedCoveredTargets, enforcedConfiguredTargets),
+  };
 
   if (profileArg !== "local") {
     if (totalObservabilityEvents === 0) {
@@ -430,9 +561,20 @@ const run = async () => {
         kind: "telemetry",
         target: "observability_stream",
         reason: "no_observability_events",
+        classification: "no_observability_events",
+        enforcement: "enforced",
+        observedWindows: 0,
+        evaluatedWindows: 0,
+        observedSamples: 0,
+        minSamplesPerWindow: null,
+        severityImpact: "hard",
+        action: "Verify log export source and observability ingestion before evaluating SLO.",
       });
     } else {
-      if (insufficientEnforcedLatency.length === 3) {
+      if (
+        enforcedLatencyConfiguredTargets > 0 &&
+        insufficientEnforcedLatency.length === enforcedLatencyConfiguredTargets
+      ) {
         overallSeverity = maxSeverity(overallSeverity, "hard");
       } else if (insufficientEnforcedLatency.length > 0 || insufficientEnforcedErrors.length > 0) {
         overallSeverity = maxSeverity(overallSeverity, "warning");
@@ -448,6 +590,18 @@ const run = async () => {
   report.summary.hardBreaches =
     report.latency.filter((metric) => metric.severity === "hard").length +
     report.errorRate.filter((domain) => domain.severity === "hard").length;
+  report.summary.insufficientChecks = report.dataQuality.insufficientChecks.length;
+  report.summary.enforcedCoverageStatus = report.dataQuality.enforcedCoverage.overall.status;
+
+  const allEnforcedLatencyInsufficient =
+    enforcedLatencyConfiguredTargets > 0 &&
+    insufficientEnforcedLatency.length === enforcedLatencyConfiguredTargets;
+
+  for (const check of report.dataQuality.insufficientChecks) {
+    if (check.classification === "insufficient_samples_latency_enforced") {
+      check.severityImpact = allEnforcedLatencyInsufficient ? "hard" : "warning";
+    }
+  }
 
   const latencyRows = report.latency.map((metric) => ({
     metric: metric.metricId,
@@ -477,9 +631,52 @@ const run = async () => {
   console.log("\nUnexpected error-rate summary");
   console.table(errorRows);
 
+  const coverageRows = [
+    {
+      surface: "latency.enforced",
+      configuredTargets: report.dataQuality.enforcedCoverage.latency.configuredTargets,
+      coveredTargets: report.dataQuality.enforcedCoverage.latency.coveredTargets,
+      insufficientTargets: report.dataQuality.enforcedCoverage.latency.insufficientTargets,
+      status: report.dataQuality.enforcedCoverage.latency.status,
+    },
+    {
+      surface: "error_rate.enforced",
+      configuredTargets: report.dataQuality.enforcedCoverage.errorRate.configuredTargets,
+      coveredTargets: report.dataQuality.enforcedCoverage.errorRate.coveredTargets,
+      insufficientTargets: report.dataQuality.enforcedCoverage.errorRate.insufficientTargets,
+      status: report.dataQuality.enforcedCoverage.errorRate.status,
+    },
+    {
+      surface: "overall.enforced",
+      configuredTargets: report.dataQuality.enforcedCoverage.overall.configuredTargets,
+      coveredTargets: report.dataQuality.enforcedCoverage.overall.coveredTargets,
+      insufficientTargets: report.dataQuality.enforcedCoverage.overall.insufficientTargets,
+      status: report.dataQuality.enforcedCoverage.overall.status,
+    },
+  ];
+
+  console.log("\nEnforced coverage summary");
+  console.table(coverageRows);
+
   if (report.dataQuality.insufficientChecks.length > 0) {
-    console.log("\nData quality / insufficient samples");
-    console.table(report.dataQuality.insufficientChecks);
+    const insufficientRows = report.dataQuality.insufficientChecks.map((check) => ({
+      classification: check.classification,
+      kind: check.kind,
+      target: check.target,
+      enforcement: check.enforcement,
+      observedWindows: check.observedWindows,
+      evaluatedWindows: check.evaluatedWindows,
+      observedSamples: check.observedSamples,
+      minSamplesPerWindow:
+        check.minSamplesPerWindow === null || check.minSamplesPerWindow === undefined
+          ? "-"
+          : check.minSamplesPerWindow,
+      severityImpact: check.severityImpact,
+      action: check.action,
+    }));
+
+    console.log("\nData quality / insufficient checks (actionable)");
+    console.table(insufficientRows);
   }
 
   console.log(`\nOverall severity: ${report.summary.severity}`);
