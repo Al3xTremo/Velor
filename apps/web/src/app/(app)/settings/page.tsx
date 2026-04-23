@@ -38,11 +38,11 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
   );
 
   const editingRule = params.editSubscription
-    ? subscriptionRules.find((rule) => rule.id === params.editSubscription) ?? null
+    ? (subscriptionRules.find((rule) => rule.id === params.editSubscription) ?? null)
     : null;
 
   const editingCategory = editingRule
-    ? expenseCategoryOptions.find((item) => item.id === editingRule.category_id) ?? null
+    ? (expenseCategoryOptions.find((item) => item.id === editingRule.category_id) ?? null)
     : null;
 
   const recurringCategories =
@@ -64,11 +64,7 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
     amountFormatted: formatCurrency(rule.amount, account?.currency ?? profile.default_currency),
     categoryName: categoryNameById.get(rule.category_id) ?? "Sin categoria",
     intervalLabel:
-      rule.interval === "weekly"
-        ? "Semanal"
-        : rule.interval === "monthly"
-          ? "Mensual"
-          : "Anual",
+      rule.interval === "weekly" ? "Semanal" : rule.interval === "monthly" ? "Mensual" : "Anual",
     nextChargeOn: rule.next_charge_on,
     isActive: rule.is_active,
     editHref: `/settings?editSubscription=${rule.id}#recurrencias`,

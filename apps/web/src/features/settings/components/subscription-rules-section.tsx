@@ -6,7 +6,10 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { FieldError, Label, SelectInput, TextInput } from "@/components/ui/field";
 import { Table } from "@/components/ui/table";
-import { toggleSubscriptionRuleAction, upsertSubscriptionRuleAction } from "@/features/settings/actions";
+import {
+  toggleSubscriptionRuleAction,
+  upsertSubscriptionRuleAction,
+} from "@/features/settings/actions";
 import { initialSubscriptionRuleFormState } from "@/features/settings/form-state";
 
 interface SubscriptionCategoryOption {
@@ -218,7 +221,9 @@ export const SubscriptionRulesSection = ({
                         {row.isActive ? "Activa" : "Inactiva"}
                       </Badge>
                     </td>
-                    <td className="text-right font-semibold text-velor-text">{row.amountFormatted}</td>
+                    <td className="text-right font-semibold text-velor-text">
+                      {row.amountFormatted}
+                    </td>
                     <td>
                       <div className="flex justify-end gap-2">
                         <a href={row.editHref} className="velor-btn-secondary px-3 py-1.5 text-xs">
