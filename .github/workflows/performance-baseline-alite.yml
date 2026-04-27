@@ -1,0 +1,105 @@
+name: Performance Baseline A-lite
+
+on:
+  workflow_dispatch:
+    inputs:
+      require_log_url:
+        description: "Fail if PERF_SLO_LOG_URL is missing"
+        required: true
+        default: true
+        type: boolean
+  schedule:
+    - cron: "15 8 * * 1"
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
+jobs:
+  baseline-check:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Classify baseline run
+        id: classify
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "require_log_url=${{ inputs.require_log_url }}" >> "$GITHUB_OUTPUT"
+            echo "mode=manual" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "require_log_url=true" >> "$GITHUB_OUTPUT"
+          echo "mode=scheduled" >> "$GITHUB_OUTPUT"
+
+      - name: Fetch observability log export
+        id: fetch_logs
+        env:
+          PERF_SLO_LOG_URL: ${{ secrets.PERF_SLO_LOG_URL }}
+          REQUIRE_LOG_URL: ${{ steps.classify.outputs.require_log_url }}
+        run: |
+          mkdir -p tmp
+          if [ -z "$PERF_SLO_LOG_URL" ]; then
+            if [ "$REQUIRE_LOG_URL" = "true" ]; then
+              echo "::error::PERF_SLO_LOG_URL is required for the A-lite baseline workflow."
+              exit 1
+            fi
+
+            echo "::warning::PERF_SLO_LOG_URL is not configured. Baseline report skipped."
+            echo "has_logs=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          curl -fsSL "$PERF_SLO_LOG_URL" -o tmp/velor-observability.ndjson
+          echo "has_logs=true" >> "$GITHUB_OUTPUT"
+
+      - name: Build A-lite baseline report
+        if: steps.fetch_logs.outputs.has_logs == 'true'
+        run: |
+          corepack pnpm perf:baseline:alite --file ./tmp/velor-observability.ndjson --json-out ./tmp/performance-baseline-alite.json --markdown-out ./tmp/performance-baseline-alite.md --fail-on never
+
+      - name: Upload baseline artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: performance-baseline-alite
+          path: |
+            tmp/performance-baseline-alite.json
+            tmp/performance-baseline-alite.md
+          if-no-files-found: ignore
+
+      - name: Publish baseline summary
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "## Performance Baseline A-lite"
+            echo ""
+            echo "- Trigger: ${{ github.event_name }}"
+            echo "- Ref: ${{ github.ref }}"
+            echo "- Mode: ${{ steps.classify.outputs.mode }}"
+            echo "- Log export available: ${{ steps.fetch_logs.outputs.has_logs }}"
+            echo "- Artifact: performance-baseline-alite"
+            echo ""
+            echo "Tracked metrics (warning thresholds):"
+            echo "- dashboard.page.load (p95 > 1200ms)"
+            echo "- analytics.page.load (p95 > 1400ms)"
+            echo "- analytics.repository.fetch (p95 > 850ms)"
+            echo ""
+            echo "Owners:"
+            echo "- platform-oncall: primary"
+            echo "- data-oncall: support when analytics query path degrades"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          if [ -f tmp/performance-baseline-alite.md ]; then
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            cat tmp/performance-baseline-alite.md >> "$GITHUB_STEP_SUMMARY"
+          fi
