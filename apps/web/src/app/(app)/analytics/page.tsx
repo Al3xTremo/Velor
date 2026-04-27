@@ -47,19 +47,23 @@ export default async function AnalyticsPage({ searchParams }: AnalyticsPageProps
       const today = new Date();
       const todayIso = toIsoDate(today);
       const initialPresets = buildAnalyticsRangePresets(todayIso);
-      const defaultRange =
-        initialPresets.find((item) => item.key === "6m") ??
+      const defaultRange = initialPresets.find((item) => item.key === "6m") ??
         initialPresets[0] ?? {
           from: todayIso,
           to: todayIso,
         };
       const requestedFrom = isIsoDate(params.from) ? params.from : defaultRange.from;
       const requestedTo = isIsoDate(params.to) ? params.to : defaultRange.to;
-      const { from, to, clamped, requestedFrom: rawRequestedFrom, requestedTo: rawRequestedTo } =
-        clampAnalyticsRange({
-          from: requestedFrom,
-          to: requestedTo,
-        });
+      const {
+        from,
+        to,
+        clamped,
+        requestedFrom: rawRequestedFrom,
+        requestedTo: rawRequestedTo,
+      } = clampAnalyticsRange({
+        from: requestedFrom,
+        to: requestedTo,
+      });
       const presets = buildAnalyticsRangePresets(to);
 
       const { supabase, user } = await requireUserSession();
