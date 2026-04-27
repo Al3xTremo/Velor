@@ -10,6 +10,9 @@ on:
         type: boolean
   schedule:
     - cron: "15 8 * * 1"
+  push:
+    branches:
+      - feature/sp-01-s1-04-s1-03
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
