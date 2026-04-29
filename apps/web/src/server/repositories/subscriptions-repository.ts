@@ -2,6 +2,8 @@ import type { SubscriptionRuleFormInput } from "@velor/contracts";
 import { measureServerOperation } from "@/server/observability/perf";
 import type { SupabaseServerClient } from "@/server/supabase/types";
 
+type SupabaseRpcClient = Pick<SupabaseServerClient, "rpc">;
+
 export type SubscriptionRuleRow = {
   id: string;
   name: string;
@@ -10,6 +12,39 @@ export type SubscriptionRuleRow = {
   interval: "weekly" | "monthly" | "yearly";
   next_charge_on: string;
   is_active: boolean;
+};
+
+type SubscriptionMaterializationRpcRow = {
+  processed_rules: number | string | null;
+  due_occurrences: number | string | null;
+  created_transactions: number | string | null;
+  skipped_duplicates: number | string | null;
+  updated_rules: number | string | null;
+  run_date: string | null;
+};
+
+export interface SubscriptionMaterializationSummary {
+  processedRules: number;
+  dueOccurrences: number;
+  createdTransactions: number;
+  skippedDuplicates: number;
+  updatedRules: number;
+  runDate: string;
+}
+
+const toNonNegativeInt = (value: number | string | null | undefined) => {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return Math.max(0, Math.round(value));
+  }
+
+  if (typeof value === "string") {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) {
+      return Math.max(0, Math.round(parsed));
+    }
+  }
+
+  return 0;
 };
 
 export const listSubscriptionRulesForUser = async (
@@ -101,4 +136,59 @@ export const toggleSubscriptionRuleActiveStatus = async (
         .eq("user_id", input.userId),
     { userId: input.userId }
   );
+};
+
+export const materializeDueSubscriptionRules = async (
+  supabase: SupabaseRpcClient,
+  input: {
+    userId?: string;
+    runDate?: string;
+  } = {}
+) => {
+  const rpcResult = await measureServerOperation(
+    "subscriptions.repository.materialize_due",
+    async () =>
+      supabase.rpc("materialize_due_subscriptions", {
+        p_user_id: input.userId ?? null,
+        p_run_date: input.runDate ?? null,
+      }),
+    {
+      userId: input.userId ?? "all_users",
+      runDate: input.runDate ?? "current_date",
+    }
+  );
+
+  if (rpcResult.error) {
+    return {
+      data: null,
+      error: rpcResult.error,
+    };
+  }
+
+  const firstRow = Array.isArray(rpcResult.data)
+    ? (rpcResult.data[0] as SubscriptionMaterializationRpcRow | undefined)
+    : undefined;
+
+  if (!firstRow) {
+    return {
+      data: null,
+      error: {
+        message: "invalid_materialization_response",
+      },
+    };
+  }
+
+  const summary: SubscriptionMaterializationSummary = {
+    processedRules: toNonNegativeInt(firstRow.processed_rules),
+    dueOccurrences: toNonNegativeInt(firstRow.due_occurrences),
+    createdTransactions: toNonNegativeInt(firstRow.created_transactions),
+    skippedDuplicates: toNonNegativeInt(firstRow.skipped_duplicates),
+    updatedRules: toNonNegativeInt(firstRow.updated_rules),
+    runDate: firstRow.run_date ?? input.runDate ?? new Date().toISOString().slice(0, 10),
+  };
+
+  return {
+    data: summary,
+    error: null,
+  };
 };

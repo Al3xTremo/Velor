@@ -25,6 +25,8 @@ export const getServerSecretEnv = () => {
 
   cachedSecretEnv = serverSecretEnvSchema.parse({
     SUPABASE_SERVICE_ROLE_KEY: process.env["SUPABASE_SERVICE_ROLE_KEY"],
+    SUBSCRIPTION_MATERIALIZATION_CRON_SECRET:
+      process.env["SUBSCRIPTION_MATERIALIZATION_CRON_SECRET"],
     OBS_ALERTS_ENABLED: process.env["OBS_ALERTS_ENABLED"],
     OBS_ALERT_WEBHOOK_URL: process.env["OBS_ALERT_WEBHOOK_URL"],
     OBS_ALERT_HEALTH_WEBHOOK_URL: process.env["OBS_ALERT_HEALTH_WEBHOOK_URL"],

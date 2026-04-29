@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   createSubscriptionRule,
   listSubscriptionRulesForUser,
+  materializeDueSubscriptionRules,
   toggleSubscriptionRuleActiveStatus,
   updateSubscriptionRule,
 } from "./subscriptions-repository";
@@ -111,5 +112,60 @@ describe("subscriptions-repository integration", () => {
     expect(eq).toHaveBeenNthCalledWith(2, "user_id", "user-1");
     expect(eq).toHaveBeenNthCalledWith(3, "id", "sub-1");
     expect(eq).toHaveBeenNthCalledWith(4, "user_id", "user-1");
+  });
+
+  it("materializes due recurring rules via RPC and normalizes summary", async () => {
+    const rpc = vi.fn().mockResolvedValue({
+      data: [
+        {
+          processed_rules: 2,
+          due_occurrences: 3,
+          created_transactions: 2,
+          skipped_duplicates: 1,
+          updated_rules: 2,
+          run_date: "2026-05-10",
+        },
+      ],
+      error: null,
+    });
+
+    const result = await materializeDueSubscriptionRules({ rpc } as never, {
+      userId: "user-1",
+      runDate: "2026-05-10",
+    });
+
+    expect(rpc).toHaveBeenCalledWith("materialize_due_subscriptions", {
+      p_user_id: "user-1",
+      p_run_date: "2026-05-10",
+    });
+
+    expect(result).toEqual({
+      data: {
+        processedRules: 2,
+        dueOccurrences: 3,
+        createdTransactions: 2,
+        skippedDuplicates: 1,
+        updatedRules: 2,
+        runDate: "2026-05-10",
+      },
+      error: null,
+    });
+  });
+
+  it("returns stable error when materialization RPC payload is invalid", async () => {
+    const rpc = vi.fn().mockResolvedValue({
+      data: null,
+      error: null,
+    });
+
+    const result = await materializeDueSubscriptionRules({ rpc } as never, {
+      userId: "user-1",
+    });
+
+    expect(result.error).toEqual(
+      expect.objectContaining({
+        message: "invalid_materialization_response",
+      })
+    );
   });
 });
