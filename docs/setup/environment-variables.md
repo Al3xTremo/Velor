@@ -27,6 +27,11 @@ Fuente de verdad inicial: `.env.example`.
   - No exponer en cliente ni logs
   - Requerida para backend de dedupe/cooldown distribuido de alertas en entornos beta
 
+- `SUBSCRIPTION_MATERIALIZATION_CRON_SECRET`
+  - Solo servidor
+  - Se usa como `Bearer` secret para el endpoint operativo que ejecuta materializacion recurrente diaria
+  - Recomendado: secreto aleatorio largo (>=16 chars)
+
 - `RATE_LIMIT_AUTH_DISTRIBUTED_FAILURE_MODE`
   - Valores: `deny`, `local`
   - Politica cuando falla el rate limiter distribuido en acciones auth sensibles

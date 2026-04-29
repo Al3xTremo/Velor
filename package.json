@@ -29,6 +29,7 @@
     "supabase:status": "corepack pnpm dlx supabase@latest status",
     "supabase:db:reset": "corepack pnpm dlx supabase@latest db reset",
     "supabase:types": "corepack pnpm dlx supabase@latest gen types typescript --local > apps/web/src/lib/supabase/database.types.ts",
+    "perf:baseline:alite": "node ./scripts/observability/perf-baseline-alite.mjs",
     "perf:report": "node ./scripts/observability/perf-report.mjs",
     "slo:check": "node ./scripts/observability/slo-check.mjs",
     "alerts:webhook:probe": "node ./scripts/observability/alert-webhook-probe.mjs",

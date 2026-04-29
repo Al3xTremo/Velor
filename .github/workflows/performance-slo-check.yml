@@ -25,6 +25,9 @@ on:
       - beta/**
       - release/**
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
 jobs:
   slo-check:
     runs-on: ubuntu-latest
@@ -36,7 +39,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
 
       - name: Classify SLO enforcement
         id: classify

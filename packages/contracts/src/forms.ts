@@ -64,9 +64,19 @@ export const budgetLimitFormSchema = z.object({
   limitAmount: z.coerce.number().finite().positive(),
 });
 
+export const subscriptionRuleFormSchema = z.object({
+  name: z.string().trim().min(1).max(120),
+  amount: z.coerce.number().finite().positive(),
+  categoryId: z.string().trim().min(1).max(64),
+  interval: z.enum(["weekly", "monthly", "yearly"]),
+  nextChargeOn: z.string().date(),
+  isActive: z.coerce.boolean().default(true),
+});
+
 export type UserProfileFormInput = z.infer<typeof userProfileFormSchema>;
 export type CategoryFormInput = z.infer<typeof categoryFormSchema>;
 export type TransactionFormInput = z.infer<typeof transactionFormSchema>;
 export type TransactionFiltersInput = z.infer<typeof transactionFiltersSchema>;
 export type SavingsGoalFormInput = z.infer<typeof savingsGoalFormSchema>;
 export type BudgetLimitFormInput = z.infer<typeof budgetLimitFormSchema>;
+export type SubscriptionRuleFormInput = z.infer<typeof subscriptionRuleFormSchema>;

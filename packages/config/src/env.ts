@@ -11,6 +11,7 @@ export type RuntimeEnv = z.infer<typeof runtimeEnvSchema>;
 
 export const serverSecretEnvSchema = z.object({
   SUPABASE_SERVICE_ROLE_KEY: z.string().min(1).optional(),
+  SUBSCRIPTION_MATERIALIZATION_CRON_SECRET: z.string().min(16).optional(),
   OBS_ALERTS_ENABLED: z.enum(["0", "1"]).optional(),
   OBS_ALERT_WEBHOOK_URL: z.string().url().optional(),
   OBS_ALERT_HEALTH_WEBHOOK_URL: z.string().url().optional(),
