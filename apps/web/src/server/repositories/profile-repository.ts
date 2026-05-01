@@ -57,6 +57,30 @@ export const upsertOnboardingProfile = async (
   );
 };
 
+export const updateUserProfileSettings = async (
+  supabase: SupabaseServerClient,
+  input: {
+    userId: string;
+    fullName: string;
+    defaultCurrency: "EUR" | "USD";
+    timezone: string;
+  }
+) => {
+  return measureServerOperation(
+    "profile.repository.update_user_profile_settings",
+    async () =>
+      supabase
+        .from("profiles")
+        .update({
+          full_name: input.fullName,
+          default_currency: input.defaultCurrency,
+          timezone: input.timezone,
+        })
+        .eq("user_id", input.userId),
+    { userId: input.userId }
+  );
+};
+
 export const createPrimaryAccount = async (
   supabase: SupabaseServerClient,
   input: {

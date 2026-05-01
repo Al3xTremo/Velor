@@ -5,11 +5,19 @@ import {
 } from "@velor/core";
 import { redirect } from "next/navigation";
 import { AppShell } from "@/components/layout/app-shell";
+import { EmptyState } from "@/components/ui/empty-state";
 import { DateRangeFilter } from "@/features/analytics/components/date-range-filter";
 import { DonutExpenseChart } from "@/features/analytics/components/donut-expense-chart";
 import { InsightsCard } from "@/features/analytics/components/insights-card";
 import { MonthlyBarsChart } from "@/features/analytics/components/monthly-bars-chart";
 import { TemporalIncomeExpenseChart } from "@/features/analytics/components/temporal-income-expense-chart";
+import {
+  buildAnalyticsRangePresets,
+  clampAnalyticsRange,
+  isIsoDate,
+  MAX_ANALYTICS_RANGE_DAYS,
+  toIsoDate,
+} from "@/features/analytics/range";
 import { buildInsights, monthKey } from "@/features/analytics/utils";
 import { reportUnexpectedError } from "@/server/observability/errors";
 import { logEvent } from "@/server/observability/logger";
@@ -27,28 +35,8 @@ interface AnalyticsPageProps {
   }>;
 }
 
-const toIsoDate = (date: Date) => date.toISOString().slice(0, 10);
-const MAX_ANALYTICS_RANGE_DAYS = 730;
-
-const clampRange = (from: string, to: string) => {
-  const fromDate = new Date(from);
-  const toDate = new Date(to);
-
-  if (Number.isNaN(fromDate.getTime()) || Number.isNaN(toDate.getTime())) {
-    return { from, to, clamped: false };
-  }
-
-  const days = Math.floor((toDate.getTime() - fromDate.getTime()) / (24 * 60 * 60 * 1000));
-  if (days <= MAX_ANALYTICS_RANGE_DAYS) {
-    return { from, to, clamped: false };
-  }
-
-  const clampedFrom = new Date(toDate.getTime() - MAX_ANALYTICS_RANGE_DAYS * 24 * 60 * 60 * 1000);
-  return {
-    from: toIsoDate(clampedFrom),
-    to,
-    clamped: true,
-  };
+const analyticsHref = (from: string, to: string) => {
+  return `/analytics?${new URLSearchParams({ from, to }).toString()}`;
 };
 
 export default async function AnalyticsPage({ searchParams }: AnalyticsPageProps) {
@@ -57,11 +45,26 @@ export default async function AnalyticsPage({ searchParams }: AnalyticsPageProps
       const params = await searchParams;
 
       const today = new Date();
-      const defaultFrom = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth() - 5, 1));
-      const requestedFrom =
-        params.from && params.from.length === 10 ? params.from : toIsoDate(defaultFrom);
-      const requestedTo = params.to && params.to.length === 10 ? params.to : toIsoDate(today);
-      const { from, to, clamped } = clampRange(requestedFrom, requestedTo);
+      const todayIso = toIsoDate(today);
+      const initialPresets = buildAnalyticsRangePresets(todayIso);
+      const defaultRange = initialPresets.find((item) => item.key === "6m") ??
+        initialPresets[0] ?? {
+          from: todayIso,
+          to: todayIso,
+        };
+      const requestedFrom = isIsoDate(params.from) ? params.from : defaultRange.from;
+      const requestedTo = isIsoDate(params.to) ? params.to : defaultRange.to;
+      const {
+        from,
+        to,
+        clamped,
+        requestedFrom: rawRequestedFrom,
+        requestedTo: rawRequestedTo,
+      } = clampAnalyticsRange({
+        from: requestedFrom,
+        to: requestedTo,
+      });
+      const presets = buildAnalyticsRangePresets(to);
 
       const { supabase, user } = await requireUserSession();
 
@@ -93,8 +96,8 @@ export default async function AnalyticsPage({ searchParams }: AnalyticsPageProps
           scope: "analytics",
           expected: true,
           meta: {
-            requestedFrom,
-            requestedTo,
+            requestedFrom: rawRequestedFrom,
+            requestedTo: rawRequestedTo,
             appliedFrom: from,
             appliedTo: to,
           },
@@ -143,12 +146,63 @@ export default async function AnalyticsPage({ searchParams }: AnalyticsPageProps
         .filter((item) => item.kind === "expense")
         .reduce((sum, item) => sum + item.amount, 0);
 
+      const clampedNotice = clamped
+        ? {
+            requestedFrom: rawRequestedFrom,
+            requestedTo: rawRequestedTo,
+            appliedFrom: from,
+            appliedTo: to,
+            maxDays: MAX_ANALYTICS_RANGE_DAYS,
+          }
+        : undefined;
+
+      const range12Months = presets.find((item) => item.key === "12m");
+      const broadenRangeHref = range12Months
+        ? analyticsHref(range12Months.from, range12Months.to)
+        : "/analytics";
+
+      if (mappedTransactions.length === 0) {
+        return (
+          <AppShell
+            title="Analitica visual"
+            subtitle="Lectura clara de patrones de gasto, ingresos y evolucion para decisiones mas inteligentes."
+          >
+            <DateRangeFilter
+              from={from}
+              to={to}
+              presets={presets}
+              {...(clampedNotice ? { clampNotice: clampedNotice } : {})}
+            />
+
+            <EmptyState
+              title="No hay datos en el rango seleccionado"
+              description="No encontramos movimientos para este periodo. Registra nuevas transacciones o amplia el rango para cargar mas historial y recuperar contexto."
+              action={
+                <div className="flex flex-wrap justify-center gap-2">
+                  <a href="/transactions" className="velor-btn-primary">
+                    Ir a movimientos
+                  </a>
+                  <a href={broadenRangeHref} className="velor-btn-secondary">
+                    Ver ultimos 12m
+                  </a>
+                </div>
+              }
+            />
+          </AppShell>
+        );
+      }
+
       return (
         <AppShell
           title="Analitica visual"
           subtitle="Lectura clara de patrones de gasto, ingresos y evolucion para decisiones mas inteligentes."
         >
-          <DateRangeFilter from={from} to={to} />
+          <DateRangeFilter
+            from={from}
+            to={to}
+            presets={presets}
+            {...(clampedNotice ? { clampNotice: clampedNotice } : {})}
+          />
 
           <section className="grid gap-4 xl:grid-cols-[1.05fr_1fr]">
             <DonutExpenseChart

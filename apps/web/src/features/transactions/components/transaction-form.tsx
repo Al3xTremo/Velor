@@ -29,9 +29,15 @@ interface TransactionFormProps {
   mode: "create" | "edit";
   categories: CategoryOption[];
   initialValues: TransactionFormValues;
+  cancelHref?: string;
 }
 
-export const TransactionForm = ({ mode, categories, initialValues }: TransactionFormProps) => {
+export const TransactionForm = ({
+  mode,
+  categories,
+  initialValues,
+  cancelHref = "/transactions",
+}: TransactionFormProps) => {
   const action = mode === "create" ? createTransactionAction : updateTransactionAction;
   const [state, formAction, isPending] = useActionState(action, initialTransactionFormState);
 
@@ -147,9 +153,13 @@ export const TransactionForm = ({ mode, categories, initialValues }: Transaction
             defaultChecked={initialValues.isRecurring}
           />
           <Label htmlFor="isRecurring" className="mb-0 text-sm normal-case tracking-normal">
-            Marcar como recurrente
+            Marcar como recurrente (solo etiqueta)
           </Label>
         </div>
+
+        <p className="md:col-span-2 text-xs text-velor-muted">
+          Esta marca no genera movimientos automaticos todavia.
+        </p>
 
         {state.status !== "idle" && state.message ? (
           <p
@@ -170,7 +180,7 @@ export const TransactionForm = ({ mode, categories, initialValues }: Transaction
                 : "Guardar cambios"}
           </Button>
           {mode === "edit" ? (
-            <a href="/transactions" className="velor-btn-secondary">
+            <a href={cancelHref} className="velor-btn-secondary">
               Cancelar edicion
             </a>
           ) : null}

@@ -3,6 +3,7 @@
 import { transactionFormSchema } from "@velor/contracts";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
+import { safeRedirectPath } from "@/features/auth/utils";
 import { requireUserSession } from "@/server/application/session-service";
 import { isNextNavigationError, reportUnexpectedError } from "@/server/observability/errors";
 import { getPrimaryAccount } from "@/server/repositories/profile-repository";
@@ -21,6 +22,28 @@ import { toOccurredMonth, zodFieldErrors } from "./utils";
 const revalidateTransactionViews = () => {
   revalidatePath("/transactions");
   revalidatePath("/dashboard");
+};
+
+const resolveTransactionsReturnPath = (formData: FormData) => {
+  const rawPath = String(formData.get("returnTo") ?? "");
+  const safePath = safeRedirectPath(rawPath, "/transactions") ?? "/transactions";
+
+  if (safePath === "/transactions" || safePath.startsWith("/transactions?")) {
+    return safePath;
+  }
+
+  return "/transactions";
+};
+
+const withNotice = (path: string, notice: "error" | "rate_limited" | "deleted") => {
+  const [rawPathname = "/transactions", queryString = ""] = path.split("?");
+  const pathname = rawPathname || "/transactions";
+  const params = new URLSearchParams(queryString);
+  params.delete("edit");
+  params.set("notice", notice);
+
+  const nextQuery = params.toString();
+  return nextQuery ? `${pathname}?${nextQuery}` : pathname;
 };
 
 export const createTransactionAction = async (
@@ -236,20 +259,22 @@ export const updateTransactionAction = async (
 };
 
 export const deleteTransactionAction = async (formData: FormData) => {
+  const returnTo = resolveTransactionsReturnPath(formData);
+
   try {
     const trustedOrigin = await isTrustedActionOrigin();
     if (!trustedOrigin) {
-      redirect("/transactions?notice=error");
+      redirect(withNotice(returnTo, "error"));
     }
 
     const transactionId = String(formData.get("transactionId") ?? "");
 
     if (!transactionId) {
-      redirect("/transactions?notice=error");
+      redirect(withNotice(returnTo, "error"));
     }
 
     if (!isUuid(transactionId)) {
-      redirect("/transactions?notice=error");
+      redirect(withNotice(returnTo, "error"));
     }
 
     const { supabase, user } = await requireUserSession();
@@ -265,7 +290,7 @@ export const deleteTransactionAction = async (formData: FormData) => {
           retryAfterMs: mutationGuard.retryAfterMs,
         },
       });
-      redirect("/transactions?notice=rate_limited");
+      redirect(withNotice(returnTo, "rate_limited"));
     }
     const { error } = await deleteTransaction(supabase, { transactionId, userId: user.id });
 
@@ -278,18 +303,18 @@ export const deleteTransactionAction = async (formData: FormData) => {
         actorUserId: user.id,
         details: { reason: error.message },
       });
-      redirect("/transactions?notice=error");
+      redirect(withNotice(returnTo, "error"));
     }
 
     logSecurityEvent({ event: "transactions.delete.success", actorUserId: user.id });
 
-    redirect("/transactions?notice=deleted");
+    redirect(withNotice(returnTo, "deleted"));
   } catch (error) {
     if (isNextNavigationError(error)) {
       throw error;
     }
 
     reportUnexpectedError("transactions.delete.unexpected_error", "transactions", error);
-    redirect("/transactions?notice=error");
+    redirect(withNotice(returnTo, "error"));
   }
 };

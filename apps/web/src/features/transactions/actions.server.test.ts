@@ -1,14 +1,28 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const mocks = vi.hoisted(() => ({
-  isTrustedActionOrigin: vi.fn(),
-  requireUserSession: vi.fn(),
-  guardUserMutation: vi.fn(),
-  getPrimaryAccount: vi.fn(),
-  createTransaction: vi.fn(),
-  updateTransaction: vi.fn(),
-  revalidatePath: vi.fn(),
-  reportUnexpectedError: vi.fn(),
+const mocks = vi.hoisted(() => {
+  const redirect = vi.fn((location: string) => {
+    const error = new Error(`NEXT_REDIRECT:${location}`) as Error & { digest?: string };
+    error.digest = `NEXT_REDIRECT;${location}`;
+    throw error;
+  });
+
+  return {
+    redirect,
+    isTrustedActionOrigin: vi.fn(),
+    requireUserSession: vi.fn(),
+    guardUserMutation: vi.fn(),
+    getPrimaryAccount: vi.fn(),
+    createTransaction: vi.fn(),
+    updateTransaction: vi.fn(),
+    deleteTransaction: vi.fn(),
+    revalidatePath: vi.fn(),
+    reportUnexpectedError: vi.fn(),
+  };
+});
+
+vi.mock("next/navigation", () => ({
+  redirect: mocks.redirect,
 }));
 
 vi.mock("next/cache", () => ({
@@ -34,7 +48,7 @@ vi.mock("@/server/repositories/profile-repository", () => ({
 vi.mock("@/server/repositories/transactions-repository", () => ({
   createTransaction: mocks.createTransaction,
   updateTransaction: mocks.updateTransaction,
-  deleteTransaction: vi.fn(),
+  deleteTransaction: mocks.deleteTransaction,
 }));
 
 vi.mock("@/server/observability/errors", async () => {
@@ -46,7 +60,11 @@ vi.mock("@/server/observability/errors", async () => {
   };
 });
 
-import { createTransactionAction, updateTransactionAction } from "./actions";
+import {
+  createTransactionAction,
+  deleteTransactionAction,
+  updateTransactionAction,
+} from "./actions";
 
 const createFormData = (entries: Record<string, string>) => {
   const formData = new FormData();
@@ -79,6 +97,7 @@ describe("transactions/actions server integration", () => {
     mocks.getPrimaryAccount.mockResolvedValue({ id: "acc-1" });
     mocks.createTransaction.mockResolvedValue({ error: null });
     mocks.updateTransaction.mockResolvedValue({ error: null });
+    mocks.deleteTransaction.mockResolvedValue({ error: null });
   });
 
   it("creates transaction and revalidates key views", async () => {
@@ -148,5 +167,33 @@ describe("transactions/actions server integration", () => {
       "transactions",
       expect.any(Error)
     );
+  });
+
+  it("preserves filters and pagination when delete succeeds", async () => {
+    await expect(
+      deleteTransactionAction(
+        createFormData({
+          transactionId: "11111111-1111-4111-8111-111111111111",
+          returnTo: "/transactions?query=cafe&kind=expense&page=2",
+        })
+      )
+    ).rejects.toMatchObject({
+      digest: expect.stringContaining(
+        "/transactions?query=cafe&kind=expense&page=2&notice=deleted"
+      ),
+    });
+  });
+
+  it("falls back to /transactions for unsafe returnTo on delete", async () => {
+    await expect(
+      deleteTransactionAction(
+        createFormData({
+          transactionId: "11111111-1111-4111-8111-111111111111",
+          returnTo: "/dashboard?page=1",
+        })
+      )
+    ).rejects.toMatchObject({
+      digest: expect.stringContaining("/transactions?notice=deleted"),
+    });
   });
 });

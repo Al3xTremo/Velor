@@ -1,7 +1,7 @@
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { Table } from "@/components/ui/table";
-import { deleteTransactionAction } from "@/features/transactions/actions";
+import { DeleteTransactionForm } from "@/features/transactions/components/delete-transaction-form";
 
 interface TransactionRow {
   id: string;
@@ -13,6 +13,8 @@ interface TransactionRow {
   amountFormatted: string;
   isRecurring: boolean;
   description: string;
+  editHref: string;
+  returnTo: string;
 }
 
 interface TransactionsTableProps {
@@ -70,21 +72,10 @@ export const TransactionsTable = ({ rows }: TransactionsTableProps) => {
                   </td>
                   <td>
                     <div className="flex justify-end gap-2">
-                      <a
-                        href={`/transactions?edit=${row.id}`}
-                        className="velor-btn-secondary px-3 py-1.5 text-xs"
-                      >
+                      <a href={row.editHref} className="velor-btn-secondary px-3 py-1.5 text-xs">
                         Editar
                       </a>
-                      <form action={deleteTransactionAction}>
-                        <input type="hidden" name="transactionId" value={row.id} />
-                        <button
-                          type="submit"
-                          className="velor-btn-ghost px-3 py-1.5 text-xs text-velor-danger"
-                        >
-                          Eliminar
-                        </button>
-                      </form>
+                      <DeleteTransactionForm transactionId={row.id} returnTo={row.returnTo} />
                     </div>
                   </td>
                 </tr>

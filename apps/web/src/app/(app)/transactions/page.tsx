@@ -78,6 +78,20 @@ export default async function TransactionsPage({ searchParams }: TransactionsPag
       const activeCategoryList = categoryList.filter((item) => item.is_system || item.is_active);
       const categoryNameById = new Map(categoryList.map((item) => [item.id, item.name]));
       const currency = account?.currency ?? profile.default_currency;
+
+      const buildPreservedTransactionsPath = (input?: { editId?: string }) => {
+        const query = new URLSearchParams();
+        if (filters.query) query.set("query", filters.query);
+        if (filters.kind) query.set("kind", filters.kind);
+        if (filters.categoryId) query.set("categoryId", filters.categoryId);
+        if (filters.from) query.set("from", filters.from);
+        if (filters.to) query.set("to", filters.to);
+        query.set("page", String(transactionsPage.page));
+        if (input?.editId) query.set("edit", input.editId);
+        return `/transactions?${query.toString()}`;
+      };
+
+      const preservedContextPath = buildPreservedTransactionsPath();
       const rows = transactions.map((item) => ({
         id: item.id,
         occurredOn: item.occurred_on,
@@ -88,6 +102,8 @@ export default async function TransactionsPage({ searchParams }: TransactionsPag
         amountFormatted: formatCurrency(item.amount, currency),
         isRecurring: item.is_recurring,
         description: item.description,
+        editHref: buildPreservedTransactionsPath({ editId: item.id }),
+        returnTo: preservedContextPath,
       }));
 
       const defaultCategoryId = activeCategoryList[0]?.id ?? categoryList[0]?.id ?? "";
@@ -162,6 +178,7 @@ export default async function TransactionsPage({ searchParams }: TransactionsPag
             <TransactionForm
               mode={formMode}
               categories={formCategories}
+              cancelHref={preservedContextPath}
               initialValues={{
                 ...(editTransaction?.id ? { id: editTransaction.id } : {}),
                 name: editTransaction?.name ?? "",

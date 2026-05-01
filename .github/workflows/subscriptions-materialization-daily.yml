@@ -1,0 +1,153 @@
+name: Subscriptions Materialization Daily
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_on:
+        description: "Optional charge date override (YYYY-MM-DD)"
+        required: false
+        type: string
+  schedule:
+    - cron: "15 5 * * *"
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
+jobs:
+  materialize-due-subscriptions:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Validate required secrets
+        shell: bash
+        env:
+          CRON_BASE_URL: ${{ secrets.SUBSCRIPTION_MATERIALIZATION_BASE_URL }}
+          CRON_SECRET: ${{ secrets.SUBSCRIPTION_MATERIALIZATION_CRON_SECRET }}
+        run: |
+          if [ -z "$CRON_BASE_URL" ]; then
+            echo "::error::Missing secret SUBSCRIPTION_MATERIALIZATION_BASE_URL."
+            exit 1
+          fi
+
+          if [ -z "$CRON_SECRET" ]; then
+            echo "::error::Missing secret SUBSCRIPTION_MATERIALIZATION_CRON_SECRET."
+            exit 1
+          fi
+
+      - name: Trigger recurring materialization endpoint
+        id: trigger
+        shell: bash
+        env:
+          CRON_BASE_URL: ${{ secrets.SUBSCRIPTION_MATERIALIZATION_BASE_URL }}
+          CRON_SECRET: ${{ secrets.SUBSCRIPTION_MATERIALIZATION_CRON_SECRET }}
+          RUN_ON: ${{ github.event_name == 'workflow_dispatch' && inputs.run_on || '' }}
+        run: |
+          endpoint="${CRON_BASE_URL%/}/api/ops/subscriptions/materialize"
+
+          if [ -n "$RUN_ON" ]; then
+            payload="{\"runOn\":\"$RUN_ON\"}"
+          else
+            payload="{}"
+          fi
+
+          response_file="$(mktemp)"
+          status_code=$(curl --silent --show-error --output "$response_file" --write-out "%{http_code}" \
+            --request POST "$endpoint" \
+            --header "content-type: application/json" \
+            --header "authorization: Bearer $CRON_SECRET" \
+            --data "$payload")
+
+          echo "status_code=$status_code" >> "$GITHUB_OUTPUT"
+          echo "response_file=$response_file" >> "$GITHUB_OUTPUT"
+
+          if [ "$status_code" -lt 200 ] || [ "$status_code" -ge 300 ]; then
+            echo "::error::Materialization endpoint returned HTTP $status_code."
+            cat "$response_file"
+            exit 1
+          fi
+
+          cat "$response_file"
+
+      - name: Validate response payload contract
+        id: validate
+        shell: bash
+        run: |
+          node -e '
+            const fs = require("node:fs");
+
+            const responsePath = process.env["RESPONSE_FILE"];
+            if (!responsePath || !fs.existsSync(responsePath)) {
+              throw new Error("missing_response_payload");
+            }
+
+            const payload = JSON.parse(fs.readFileSync(responsePath, "utf8"));
+            const summary = payload?.summary;
+
+            const isNonNegativeInteger = (value) =>
+              Number.isInteger(value) && Number.isFinite(value) && value >= 0;
+
+            const requiredNumericKeys = [
+              "processedRules",
+              "dueOccurrences",
+              "createdTransactions",
+              "skippedDuplicates",
+              "updatedRules",
+            ];
+
+            if (payload?.ok !== true || !summary) {
+              throw new Error("invalid_ok_or_summary");
+            }
+
+            for (const key of requiredNumericKeys) {
+              if (!isNonNegativeInteger(summary[key])) {
+                throw new Error(`invalid_summary_counter:${key}`);
+              }
+            }
+
+            if (typeof summary.runDate !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(summary.runDate)) {
+              throw new Error("invalid_summary_run_date");
+            }
+
+            if (summary.createdTransactions + summary.skippedDuplicates > summary.dueOccurrences) {
+              throw new Error("incoherent_summary_counters");
+            }
+
+            fs.appendFileSync(process.env["GITHUB_OUTPUT"], `run_date=${summary.runDate}\n`);
+            fs.appendFileSync(process.env["GITHUB_OUTPUT"], `processed_rules=${summary.processedRules}\n`);
+            fs.appendFileSync(process.env["GITHUB_OUTPUT"], `due_occurrences=${summary.dueOccurrences}\n`);
+            fs.appendFileSync(process.env["GITHUB_OUTPUT"], `created_transactions=${summary.createdTransactions}\n`);
+            fs.appendFileSync(process.env["GITHUB_OUTPUT"], `skipped_duplicates=${summary.skippedDuplicates}\n`);
+            fs.appendFileSync(process.env["GITHUB_OUTPUT"], `updated_rules=${summary.updatedRules}\n`);
+          '
+        env:
+          RESPONSE_FILE: ${{ steps.trigger.outputs.response_file }}
+
+      - name: Publish materialization summary
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "## Subscriptions Materialization Daily"
+            echo ""
+            echo "- Trigger: ${{ github.event_name }}"
+            echo "- Run on override: ${{ github.event_name == 'workflow_dispatch' && inputs.run_on || 'current_date' }}"
+            echo "- HTTP status: ${{ steps.trigger.outputs.status_code || 'n/a' }}"
+            echo "- Payload contract: ${{ steps.validate.outcome || 'n/a' }}"
+
+            if [ -n "${{ steps.validate.outputs.run_date }}" ]; then
+              echo "- Summary counters:"
+              echo "  - runDate: ${{ steps.validate.outputs.run_date }}"
+              echo "  - processedRules: ${{ steps.validate.outputs.processed_rules }}"
+              echo "  - dueOccurrences: ${{ steps.validate.outputs.due_occurrences }}"
+              echo "  - createdTransactions: ${{ steps.validate.outputs.created_transactions }}"
+              echo "  - skippedDuplicates: ${{ steps.validate.outputs.skipped_duplicates }}"
+              echo "  - updatedRules: ${{ steps.validate.outputs.updated_rules }}"
+            fi
+
+            if [ -n "${{ steps.trigger.outputs.response_file }}" ] && [ -f "${{ steps.trigger.outputs.response_file }}" ]; then
+              echo "- Response payload:"
+              echo '```json'
+              cat "${{ steps.trigger.outputs.response_file }}"
+              echo '```'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
