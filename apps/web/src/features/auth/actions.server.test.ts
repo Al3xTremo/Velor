@@ -66,7 +66,12 @@ vi.mock("@/server/security/audit-log", () => ({
   logSecurityEvent: mocks.logSecurityEvent,
 }));
 
-import { forgotPasswordAction, loginAction } from "./actions";
+import {
+  forgotPasswordAction,
+  loginAction,
+  registerAction,
+  resendConfirmationAction,
+} from "./actions";
 
 const createFormData = (entries: Record<string, string>) => {
   const formData = new FormData();
@@ -80,6 +85,7 @@ describe("auth/actions server integration", () => {
   const supabaseAuth = {
     signInWithPassword: vi.fn(),
     signUp: vi.fn(),
+    resend: vi.fn(),
     resetPasswordForEmail: vi.fn(),
     updateUser: vi.fn(),
     signOut: vi.fn(),
@@ -96,6 +102,8 @@ describe("auth/actions server integration", () => {
     mocks.getServerSecretEnv.mockReturnValue({ OBS_ALERTS_ENABLED: "0" });
     mocks.createSupabaseServerClient.mockResolvedValue({ auth: supabaseAuth });
     supabaseAuth.signInWithPassword.mockResolvedValue({ error: null });
+    supabaseAuth.signUp.mockResolvedValue({ data: { user: { id: "u1" }, session: null }, error: null });
+    supabaseAuth.resend.mockResolvedValue({ error: null });
     supabaseAuth.resetPasswordForEmail.mockResolvedValue({ error: null });
   });
 
@@ -132,6 +140,137 @@ describe("auth/actions server integration", () => {
       message: "Demasiados intentos. Espera unos minutos antes de volver a intentarlo.",
     });
     expect(supabaseAuth.signInWithPassword).not.toHaveBeenCalled();
+  });
+
+  it("asks the user to confirm their email before login when Supabase blocks unconfirmed access", async () => {
+    supabaseAuth.signInWithPassword.mockResolvedValue({
+      error: { message: "Email not confirmed" },
+    });
+
+    const result = await loginAction(
+      { status: "idle" },
+      createFormData({ email: "user@example.com", password: "secret-123" })
+    );
+
+    expect(result).toEqual({
+      status: "error",
+      message: "Confirma tu correo desde el enlace que te enviamos antes de iniciar sesion.",
+    });
+  });
+
+  it("returns pending-confirmation success after sign up when the email is not confirmed yet", async () => {
+    const result = await registerAction(
+      { status: "idle" },
+      createFormData({
+        email: "user@example.com",
+        password: "secret-123",
+        fullName: "Ada Lovelace",
+        defaultCurrency: "EUR",
+      })
+    );
+
+    expect(result).toEqual({
+      status: "success",
+      message: "Cuenta creada. Te enviamos un correo de confirmacion. Abre el enlace para activar tu acceso.",
+    });
+    expect(mocks.guardAuthAttempt).toHaveBeenCalledWith("fp-test", "register");
+    expect(supabaseAuth.signUp).toHaveBeenCalledWith({
+      email: "user@example.com",
+      password: "secret-123",
+      options: {
+        data: {
+          full_name: "Ada Lovelace",
+          default_currency: "EUR",
+        },
+        emailRedirectTo: "http://localhost:3000/auth/callback?next=/onboarding",
+      },
+    });
+  });
+
+  it("redirects to onboarding when sign up returns an already confirmed session", async () => {
+    supabaseAuth.signUp.mockResolvedValue({
+      data: {
+        user: { id: "u1", email_confirmed_at: "2026-01-01T00:00:00.000Z" },
+        session: { user: { email_confirmed_at: "2026-01-01T00:00:00.000Z" } },
+      },
+      error: null,
+    });
+
+    await expect(
+      registerAction(
+        { status: "idle" },
+        createFormData({
+          email: "user@example.com",
+          password: "secret-123",
+          fullName: "Ada Lovelace",
+          defaultCurrency: "EUR",
+        })
+      )
+    ).rejects.toMatchObject({
+      digest: expect.stringContaining("/onboarding"),
+    });
+  });
+
+  it("keeps the account pending when sign up returns a session without confirmed email", async () => {
+    supabaseAuth.signUp.mockResolvedValue({
+      data: {
+        user: { id: "u1", email_confirmed_at: null },
+        session: { user: { email_confirmed_at: null } },
+      },
+      error: null,
+    });
+
+    const result = await registerAction(
+      { status: "idle" },
+      createFormData({
+        email: "user@example.com",
+        password: "secret-123",
+        fullName: "Ada Lovelace",
+        defaultCurrency: "EUR",
+      })
+    );
+
+    expect(result).toEqual({
+      status: "success",
+      message: "Cuenta creada. Te enviamos un correo de confirmacion. Abre el enlace para activar tu acceso.",
+    });
+  });
+
+  it("re-sends the confirmation email without exposing whether the account exists", async () => {
+    const result = await resendConfirmationAction(
+      { status: "idle" },
+      createFormData({ email: "user@example.com" })
+    );
+
+    expect(result).toEqual({
+      status: "success",
+      message:
+        "Si el correo corresponde a una cuenta pendiente, te enviamos un nuevo enlace de confirmacion.",
+    });
+    expect(mocks.guardAuthAttempt).toHaveBeenCalledWith("fp-test", "resend");
+    expect(supabaseAuth.resend).toHaveBeenCalledWith({
+      type: "signup",
+      email: "user@example.com",
+      options: {
+        emailRedirectTo: "http://localhost:3000/auth/callback?next=/onboarding",
+      },
+    });
+  });
+
+  it("returns validation errors for invalid confirmation resend payload", async () => {
+    const result = await resendConfirmationAction(
+      { status: "idle" },
+      createFormData({ email: "not-an-email" })
+    );
+
+    expect(result.status).toBe("error");
+    expect(result.message).toBe("Revisa el correo ingresado.");
+    expect(result.fieldErrors).toEqual(
+      expect.objectContaining({
+        email: expect.any(String),
+      })
+    );
+    expect(supabaseAuth.resend).not.toHaveBeenCalled();
   });
 
   it("returns contract validation errors for invalid forgot-password payload", async () => {

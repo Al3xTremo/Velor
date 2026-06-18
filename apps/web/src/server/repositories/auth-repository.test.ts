@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  resendSignUpConfirmation,
   sendPasswordRecovery,
   signInWithPassword,
   signUpUser,
@@ -33,9 +34,10 @@ describe("auth-repository integration", () => {
     });
   });
 
-  it("delegates login, recovery, password update and signout to auth adapter", async () => {
+  it("delegates login, recovery, confirmation resend, password update and signout to auth adapter", async () => {
     const signInWithPasswordMock = vi.fn().mockResolvedValue({ error: null });
     const resetPasswordForEmailMock = vi.fn().mockResolvedValue({ error: null });
+    const resendMock = vi.fn().mockResolvedValue({ error: null });
     const updateUserMock = vi.fn().mockResolvedValue({ error: null });
     const signOutMock = vi.fn().mockResolvedValue({ error: null });
 
@@ -43,6 +45,7 @@ describe("auth-repository integration", () => {
       auth: {
         signInWithPassword: signInWithPasswordMock,
         resetPasswordForEmail: resetPasswordForEmailMock,
+        resend: resendMock,
         updateUser: updateUserMock,
         signOut: signOutMock,
       },
@@ -56,6 +59,10 @@ describe("auth-repository integration", () => {
       email: "user@example.com",
       redirectTo: "http://localhost:3000/auth/callback",
     });
+    await resendSignUpConfirmation(supabase as never, {
+      email: "user@example.com",
+      redirectTo: "http://localhost:3000/auth/callback?next=/onboarding",
+    });
     await updateUserPassword(supabase as never, { password: "new-pass" });
     await signOutUser(supabase as never);
 
@@ -65,6 +72,13 @@ describe("auth-repository integration", () => {
     });
     expect(resetPasswordForEmailMock).toHaveBeenCalledWith("user@example.com", {
       redirectTo: "http://localhost:3000/auth/callback",
+    });
+    expect(resendMock).toHaveBeenCalledWith({
+      type: "signup",
+      email: "user@example.com",
+      options: {
+        emailRedirectTo: "http://localhost:3000/auth/callback?next=/onboarding",
+      },
     });
     expect(updateUserMock).toHaveBeenCalledWith({ password: "new-pass" });
     expect(signOutMock).toHaveBeenCalled();

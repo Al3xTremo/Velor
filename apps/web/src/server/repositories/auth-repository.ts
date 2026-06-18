@@ -58,6 +58,27 @@ export const sendPasswordRecovery = async (
   );
 };
 
+export const resendSignUpConfirmation = async (
+  supabase: SupabaseServerClient,
+  payload: { email: string; redirectTo: string }
+) => {
+  return measureServerOperation(
+    "auth.repository.resend_signup_confirmation",
+    async () => {
+      return supabase.auth.resend({
+        type: "signup",
+        email: payload.email,
+        options: {
+          emailRedirectTo: payload.redirectTo,
+        },
+      });
+    },
+    {
+      hasRedirectTo: Boolean(payload.redirectTo),
+    }
+  );
+};
+
 export const updateUserPassword = async (
   supabase: SupabaseServerClient,
   payload: { password: string }

@@ -17,7 +17,7 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
   return (
     <AuthPanel
       title="Iniciar sesion"
-      subtitle="Accede a tus finanzas con una experiencia clara y segura."
+      subtitle="Accede a tus finanzas con una experiencia clara y segura. Si acabas de registrarte, primero confirma tu correo."
     >
       {params.message ? (
         <p className="rounded-xl border border-amber-300 bg-amber-100/70 px-3 py-2 text-sm font-medium text-amber-800">
@@ -34,6 +34,14 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
             href="/auth/forgot-password"
           >
             Olvidaste tu contrasena
+          </Link>
+        </p>
+        <p>
+          <Link
+            className="font-semibold text-velor-primary hover:text-velor-primary-strong"
+            href="/auth/confirm-email"
+          >
+            Reenviar correo de confirmacion
           </Link>
         </p>
         <p>
