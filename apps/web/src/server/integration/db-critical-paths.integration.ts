@@ -10,7 +10,12 @@ import {
   upsertBudgetLimit,
 } from "@/server/repositories/budgets-repository";
 import { createGoal, listGoalsForUser, updateGoal } from "@/server/repositories/goals-repository";
-import { getPrimaryAccount, getUserProfile } from "@/server/repositories/profile-repository";
+import {
+  createPrimaryAccount,
+  getPrimaryAccount,
+  getUserProfile,
+  upsertOnboardingProfile,
+} from "@/server/repositories/profile-repository";
 import {
   createTransaction,
   listTransactionsPageForUser,
@@ -50,13 +55,15 @@ const createIntegrationUser = async (prefix: string): Promise<IntegrationUser> =
   const email = randomEmail(prefix);
   const password = `P4ss-${Math.random().toString(36).slice(2, 10)}!`;
 
-  const { data, error } = await adminClient.auth.admin.createUser({
+  const bootstrapClient = buildDbClient(anonKey);
+  const { data, error } = await bootstrapClient.auth.signUp({
     email,
     password,
-    email_confirm: true,
-    user_metadata: {
-      full_name: `Integration ${prefix}`,
-      default_currency: "EUR",
+    options: {
+      data: {
+        full_name: `Integration ${prefix}`,
+        default_currency: "EUR",
+      },
     },
   });
 
@@ -72,14 +79,57 @@ const createIntegrationUser = async (prefix: string): Promise<IntegrationUser> =
 };
 
 const loginAsUser = async (email: string, password: string): Promise<DbClient> => {
-  const client = buildDbClient(anonKey);
-  const { error } = await client.auth.signInWithPassword({ email, password });
+  const authClient = buildDbClient(anonKey);
+  const { data, error } = await authClient.auth.signInWithPassword({ email, password });
 
-  if (error) {
-    throw new Error(`Failed login for integration user: ${error.message}`);
+  if (error || !data.session) {
+    throw new Error(`Failed login for integration user: ${error?.message ?? "missing_session"}`);
   }
 
-  return client;
+  const accessToken = data.session.access_token;
+
+  return createClient(baseUrl, anonKey, {
+    auth: {
+      persistSession: false,
+      autoRefreshToken: false,
+      detectSessionInUrl: false,
+    },
+    accessToken: async () => accessToken,
+  });
+};
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const waitForPrimaryAccount = async (client: DbClient, userId: string) => {
+  const timeoutMs = 15_000;
+  const startedAt = Date.now();
+
+  while (Date.now() - startedAt < timeoutMs) {
+    const account = await getPrimaryAccount(client as never, userId);
+    if (account) {
+      return account;
+    }
+
+    await sleep(500);
+  }
+
+  return null;
+};
+
+const waitForUserProfile = async (client: DbClient, userId: string) => {
+  const timeoutMs = 15_000;
+  const startedAt = Date.now();
+
+  while (Date.now() - startedAt < timeoutMs) {
+    const profile = await getUserProfile(client as never, userId);
+    if (profile) {
+      return profile;
+    }
+
+    await sleep(500);
+  }
+
+  return null;
 };
 
 const getSystemCategoryId = async (client: DbClient, kind: "income" | "expense") => {
@@ -118,9 +168,45 @@ describe("db integration critical paths (RLS + triggers)", () => {
     ownerClient = await loginAsUser(ownerUser.email, ownerUser.password);
     outsiderClient = await loginAsUser(outsiderUser.email, outsiderUser.password);
 
-    const account = await getPrimaryAccount(ownerClient as never, ownerUser.id);
+    let profile = await waitForUserProfile(ownerClient, ownerUser.id);
+    if (!profile) {
+      const profileInsert = await upsertOnboardingProfile(ownerClient as never, {
+        userId: ownerUser.id,
+        fullName: `Integration owner`,
+        defaultCurrency: "EUR",
+        timezone: "UTC",
+      });
+
+      if (profileInsert.error) {
+        throw new Error(`Profile bootstrap fallback failed: ${profileInsert.error.message}`);
+      }
+
+      profile = await waitForUserProfile(ownerClient, ownerUser.id);
+    }
+
+    if (!profile) {
+      throw new Error("Profile not available after auth bootstrap fallback.");
+    }
+
+    let account = await waitForPrimaryAccount(ownerClient, ownerUser.id);
     if (!account) {
-      throw new Error("Primary account not created by auth trigger.");
+      const accountInsert = await createPrimaryAccount(ownerClient as never, {
+        userId: ownerUser.id,
+        defaultCurrency: profile.default_currency,
+        openingBalance: 0,
+      });
+
+      if (accountInsert.error) {
+        throw new Error(
+          `Primary account bootstrap fallback failed: ${accountInsert.error.message}`
+        );
+      }
+
+      account = await waitForPrimaryAccount(ownerClient, ownerUser.id);
+    }
+
+    if (!account) {
+      throw new Error("Primary account not available after auth bootstrap fallback.");
     }
 
     ownerAccountId = account.id;

@@ -12,7 +12,12 @@ const PRIVATE_ROUTES = [
   "/goals",
   "/settings",
 ];
-const AUTH_ROUTES = ["/auth/login", "/auth/register", "/auth/forgot-password"];
+const AUTH_ROUTES = [
+  "/auth/login",
+  "/auth/register",
+  "/auth/forgot-password",
+  "/auth/confirm-email",
+];
 
 export const updateSession = async (request: NextRequest) => {
   let response = NextResponse.next({ request });

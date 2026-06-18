@@ -8,9 +8,8 @@ import {
 
 describe("profile-repository integration", () => {
   it("updates onboarding profile with completion timestamp", async () => {
-    const eq = vi.fn().mockResolvedValue({ error: null });
-    const update = vi.fn().mockReturnValue({ eq });
-    const from = vi.fn().mockReturnValue({ update });
+    const upsert = vi.fn().mockResolvedValue({ error: null });
+    const from = vi.fn().mockReturnValue({ upsert });
 
     await upsertOnboardingProfile({ from } as never, {
       userId: "user-1",
@@ -19,15 +18,18 @@ describe("profile-repository integration", () => {
       timezone: "Europe/Madrid",
     });
 
-    expect(update).toHaveBeenCalledWith(
+    expect(upsert).toHaveBeenCalledWith(
       expect.objectContaining({
+        user_id: "user-1",
         full_name: "Ada Lovelace",
         default_currency: "EUR",
         timezone: "Europe/Madrid",
         onboarding_completed_at: expect.any(String),
-      })
+      }),
+      {
+        onConflict: "user_id",
+      }
     );
-    expect(eq).toHaveBeenCalledWith("user_id", "user-1");
   });
 
   it("updates profile settings without touching onboarding timestamp", async () => {

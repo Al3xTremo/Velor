@@ -43,16 +43,22 @@ export const upsertOnboardingProfile = async (
 ) => {
   return measureServerOperation(
     "profile.repository.upsert_onboarding_profile",
-    async () =>
-      supabase
-        .from("profiles")
-        .update({
+    async () => {
+      const onboardingCompletedAt = new Date().toISOString();
+
+      return supabase.from("profiles").upsert(
+        {
+          user_id: input.userId,
           full_name: input.fullName,
           default_currency: input.defaultCurrency,
           timezone: input.timezone,
-          onboarding_completed_at: new Date().toISOString(),
-        })
-        .eq("user_id", input.userId),
+          onboarding_completed_at: onboardingCompletedAt,
+        },
+        {
+          onConflict: "user_id",
+        }
+      );
+    },
     { userId: input.userId }
   );
 };

@@ -11,6 +11,7 @@ import { redirect } from "next/navigation";
 import { getWebEnv } from "@/lib/env";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import {
+  resendSignUpConfirmation,
   sendPasswordRecovery,
   signInWithPassword,
   signOutUser,
@@ -117,15 +118,23 @@ export const loginAction = async (
     const { error } = await signInWithPassword(supabase, parsedPayload.data);
 
     if (error) {
+      const requiresEmailConfirmation = /email not confirmed/i.test(error.message);
+
       logSecurityEvent({
         event: "auth.login.failed",
         severity: "warn",
         fingerprint,
-        details: { reason: error.message },
+        details: {
+          reason: error.message,
+          requiresEmailConfirmation,
+        },
       });
+
       return {
         status: "error",
-        message: "No pudimos iniciar sesion. Verifica tus credenciales.",
+        message: requiresEmailConfirmation
+          ? "Confirma tu correo desde el enlace que te enviamos antes de iniciar sesion."
+          : "No pudimos iniciar sesion. Verifica tus credenciales.",
       };
     }
 
@@ -220,7 +229,10 @@ export const registerAction = async (
       };
     }
 
-    if (data.session) {
+    const emailConfirmedAt =
+      data.user?.email_confirmed_at ?? data.session?.user?.email_confirmed_at;
+
+    if (data.session && emailConfirmedAt) {
       logSecurityEvent({ event: "auth.register.success_with_session", fingerprint });
       redirect("/onboarding");
     }
@@ -229,7 +241,8 @@ export const registerAction = async (
 
     return {
       status: "success",
-      message: "Cuenta creada. Revisa tu correo para confirmar el acceso.",
+      message:
+        "Cuenta creada. Te enviamos un correo de confirmacion. Abre el enlace para activar tu acceso.",
     };
   } catch (error) {
     if (isNextNavigationError(error)) {
@@ -240,6 +253,96 @@ export const registerAction = async (
     return {
       status: "error",
       message: "No pudimos completar el registro por un error inesperado.",
+    };
+  }
+};
+
+export const resendConfirmationAction = async (
+  _state: AuthFormState,
+  formData: FormData
+): Promise<AuthFormState> => {
+  try {
+    const fingerprint = await getRequestFingerprint();
+    const trustedOrigin = await isTrustedActionOrigin();
+    if (!trustedOrigin) {
+      logSecurityEvent({
+        event: "auth.resend_confirmation.invalid_origin",
+        severity: "warn",
+        fingerprint,
+      });
+      return {
+        status: "error",
+        message: "No pudimos validar el origen de la solicitud.",
+      };
+    }
+
+    const payload = {
+      email: String(formData.get("email") ?? ""),
+    };
+
+    const parsedPayload = forgotPasswordSchema.safeParse(payload);
+
+    const attemptGuard = await guardAuthAttempt(fingerprint, "resend");
+    if (!attemptGuard.allowed) {
+      logSecurityEvent({
+        event: "auth.resend_confirmation.rate_limited",
+        severity: "warn",
+        fingerprint,
+        details: {
+          retryAfterMs: attemptGuard.retryAfterMs,
+          strategy: attemptGuard.strategy ?? "unknown",
+          degraded: attemptGuard.degraded ?? false,
+        },
+      });
+      return {
+        status: "error",
+        message: "Demasiados intentos. Espera antes de solicitar otro correo.",
+      };
+    }
+
+    if (!parsedPayload.success) {
+      return {
+        status: "error",
+        message: "Revisa el correo ingresado.",
+        fieldErrors: zodFieldErrors(parsedPayload.error),
+      };
+    }
+
+    const supabase = await createSupabaseServerClient();
+    const siteUrl = await getSiteUrl();
+    const { error } = await resendSignUpConfirmation(supabase, {
+      email: parsedPayload.data.email,
+      redirectTo: `${siteUrl}/auth/callback?next=/onboarding`,
+    });
+
+    if (error) {
+      logSecurityEvent({
+        event: "auth.resend_confirmation.failed",
+        severity: "warn",
+        fingerprint,
+        details: { reason: error.message },
+      });
+      return {
+        status: "error",
+        message: "No pudimos reenviar el correo ahora mismo. Intentalo nuevamente.",
+      };
+    }
+
+    logSecurityEvent({ event: "auth.resend_confirmation.requested", fingerprint });
+    return {
+      status: "success",
+      message:
+        "Si el correo corresponde a una cuenta pendiente, te enviamos un nuevo enlace de confirmacion.",
+    };
+  } catch (error) {
+    if (isNextNavigationError(error)) {
+      throw error;
+    }
+
+    reportUnexpectedError("auth.resend_confirmation.unexpected_error", "auth", error);
+    return {
+      status: "error",
+      message: "No pudimos procesar la solicitud por un error inesperado.",
     };
   }
 };

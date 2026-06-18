@@ -6,7 +6,7 @@ const loginLockKey = (fingerprint: string, email: string) => {
 
 export const guardAuthAttempt = (
   fingerprint: string,
-  action: "login" | "register" | "forgot" | "reset"
+  action: "login" | "register" | "forgot" | "reset" | "resend"
 ) => {
   return rateLimit(`auth:${action}:${fingerprint}`, {
     limit: 12,
