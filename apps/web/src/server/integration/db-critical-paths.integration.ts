@@ -82,6 +82,24 @@ const loginAsUser = async (email: string, password: string): Promise<DbClient> =
   return client;
 };
 
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const waitForPrimaryAccount = async (client: DbClient, userId: string) => {
+  const timeoutMs = 15_000;
+  const startedAt = Date.now();
+
+  while (Date.now() - startedAt < timeoutMs) {
+    const account = await getPrimaryAccount(client as never, userId);
+    if (account) {
+      return account;
+    }
+
+    await sleep(500);
+  }
+
+  return null;
+};
+
 const getSystemCategoryId = async (client: DbClient, kind: "income" | "expense") => {
   const { data, error } = await client
     .from("categories")
@@ -118,7 +136,7 @@ describe("db integration critical paths (RLS + triggers)", () => {
     ownerClient = await loginAsUser(ownerUser.email, ownerUser.password);
     outsiderClient = await loginAsUser(outsiderUser.email, outsiderUser.password);
 
-    const account = await getPrimaryAccount(ownerClient as never, ownerUser.id);
+    const account = await waitForPrimaryAccount(ownerClient, ownerUser.id);
     if (!account) {
       throw new Error("Primary account not created by auth trigger.");
     }
