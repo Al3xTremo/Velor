@@ -178,9 +178,7 @@ describe("db integration critical paths (RLS + triggers)", () => {
       });
 
       if (profileInsert.error) {
-        throw new Error(
-          `Profile bootstrap fallback failed: ${profileInsert.error.message}`
-        );
+        throw new Error(`Profile bootstrap fallback failed: ${profileInsert.error.message}`);
       }
 
       profile = await waitForUserProfile(ownerClient, ownerUser.id);
