@@ -181,7 +181,9 @@ describe("db integration critical paths (RLS + triggers)", () => {
       });
 
       if (accountInsert.error) {
-        throw new Error(`Primary account bootstrap fallback failed: ${accountInsert.error.message}`);
+        throw new Error(
+          `Primary account bootstrap fallback failed: ${accountInsert.error.message}`
+        );
       }
 
       account = await waitForPrimaryAccount(ownerClient, ownerUser.id);
