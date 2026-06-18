@@ -50,13 +50,15 @@ const createIntegrationUser = async (prefix: string): Promise<IntegrationUser> =
   const email = randomEmail(prefix);
   const password = `P4ss-${Math.random().toString(36).slice(2, 10)}!`;
 
-  const { data, error } = await adminClient.auth.admin.createUser({
+  const bootstrapClient = buildDbClient(anonKey);
+  const { data, error } = await bootstrapClient.auth.signUp({
     email,
     password,
-    email_confirm: true,
-    user_metadata: {
-      full_name: `Integration ${prefix}`,
-      default_currency: "EUR",
+    options: {
+      data: {
+        full_name: `Integration ${prefix}`,
+        default_currency: "EUR",
+      },
     },
   });
 
