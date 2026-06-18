@@ -10,7 +10,11 @@ import {
   upsertBudgetLimit,
 } from "@/server/repositories/budgets-repository";
 import { createGoal, listGoalsForUser, updateGoal } from "@/server/repositories/goals-repository";
-import { getPrimaryAccount, getUserProfile } from "@/server/repositories/profile-repository";
+import {
+  createPrimaryAccount,
+  getPrimaryAccount,
+  getUserProfile,
+} from "@/server/repositories/profile-repository";
 import {
   createTransaction,
   listTransactionsPageForUser,
@@ -111,6 +115,22 @@ const waitForPrimaryAccount = async (client: DbClient, userId: string) => {
   return null;
 };
 
+const waitForUserProfile = async (client: DbClient, userId: string) => {
+  const timeoutMs = 15_000;
+  const startedAt = Date.now();
+
+  while (Date.now() - startedAt < timeoutMs) {
+    const profile = await getUserProfile(client as never, userId);
+    if (profile) {
+      return profile;
+    }
+
+    await sleep(500);
+  }
+
+  return null;
+};
+
 const getSystemCategoryId = async (client: DbClient, kind: "income" | "expense") => {
   const { data, error } = await client
     .from("categories")
@@ -147,9 +167,28 @@ describe("db integration critical paths (RLS + triggers)", () => {
     ownerClient = await loginAsUser(ownerUser.email, ownerUser.password);
     outsiderClient = await loginAsUser(outsiderUser.email, outsiderUser.password);
 
-    const account = await waitForPrimaryAccount(ownerClient, ownerUser.id);
+    const profile = await waitForUserProfile(ownerClient, ownerUser.id);
+    if (!profile) {
+      throw new Error("Profile not created by auth trigger.");
+    }
+
+    let account = await waitForPrimaryAccount(ownerClient, ownerUser.id);
     if (!account) {
-      throw new Error("Primary account not created by auth trigger.");
+      const accountInsert = await createPrimaryAccount(ownerClient as never, {
+        userId: ownerUser.id,
+        defaultCurrency: profile.default_currency,
+        openingBalance: 0,
+      });
+
+      if (accountInsert.error) {
+        throw new Error(`Primary account bootstrap fallback failed: ${accountInsert.error.message}`);
+      }
+
+      account = await waitForPrimaryAccount(ownerClient, ownerUser.id);
+    }
+
+    if (!account) {
+      throw new Error("Primary account not available after auth bootstrap fallback.");
     }
 
     ownerAccountId = account.id;
