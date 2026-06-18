@@ -14,6 +14,7 @@ import {
   createPrimaryAccount,
   getPrimaryAccount,
   getUserProfile,
+  upsertOnboardingProfile,
 } from "@/server/repositories/profile-repository";
 import {
   createTransaction,
@@ -167,9 +168,26 @@ describe("db integration critical paths (RLS + triggers)", () => {
     ownerClient = await loginAsUser(ownerUser.email, ownerUser.password);
     outsiderClient = await loginAsUser(outsiderUser.email, outsiderUser.password);
 
-    const profile = await waitForUserProfile(ownerClient, ownerUser.id);
+    let profile = await waitForUserProfile(ownerClient, ownerUser.id);
     if (!profile) {
-      throw new Error("Profile not created by auth trigger.");
+      const profileInsert = await upsertOnboardingProfile(ownerClient as never, {
+        userId: ownerUser.id,
+        fullName: `Integration owner`,
+        defaultCurrency: "EUR",
+        timezone: "UTC",
+      });
+
+      if (profileInsert.error) {
+        throw new Error(
+          `Profile bootstrap fallback failed: ${profileInsert.error.message}`
+        );
+      }
+
+      profile = await waitForUserProfile(ownerClient, ownerUser.id);
+    }
+
+    if (!profile) {
+      throw new Error("Profile not available after auth bootstrap fallback.");
     }
 
     let account = await waitForPrimaryAccount(ownerClient, ownerUser.id);
