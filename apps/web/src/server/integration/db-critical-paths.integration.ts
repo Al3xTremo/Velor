@@ -72,14 +72,23 @@ const createIntegrationUser = async (prefix: string): Promise<IntegrationUser> =
 };
 
 const loginAsUser = async (email: string, password: string): Promise<DbClient> => {
-  const client = buildDbClient(anonKey);
-  const { error } = await client.auth.signInWithPassword({ email, password });
+  const authClient = buildDbClient(anonKey);
+  const { data, error } = await authClient.auth.signInWithPassword({ email, password });
 
-  if (error) {
-    throw new Error(`Failed login for integration user: ${error.message}`);
+  if (error || !data.session) {
+    throw new Error(`Failed login for integration user: ${error?.message ?? "missing_session"}`);
   }
 
-  return client;
+  const accessToken = data.session.access_token;
+
+  return createClient(baseUrl, anonKey, {
+    auth: {
+      persistSession: false,
+      autoRefreshToken: false,
+      detectSessionInUrl: false,
+    },
+    accessToken: async () => accessToken,
+  });
 };
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
