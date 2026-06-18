@@ -11,9 +11,7 @@ export default function ConfirmEmailPage() {
       <ResendConfirmationForm />
 
       <div className="space-y-2 text-center text-sm text-velor-muted">
-        <p>
-          Despues de confirmar tu correo, podras entrar con normalidad.
-        </p>
+        <p>Despues de confirmar tu correo, podras entrar con normalidad.</p>
         <p>
           <Link
             className="font-semibold text-velor-primary hover:text-velor-primary-strong"

@@ -229,7 +229,8 @@ export const registerAction = async (
       };
     }
 
-    const emailConfirmedAt = data.user?.email_confirmed_at ?? data.session?.user?.email_confirmed_at;
+    const emailConfirmedAt =
+      data.user?.email_confirmed_at ?? data.session?.user?.email_confirmed_at;
 
     if (data.session && emailConfirmedAt) {
       logSecurityEvent({ event: "auth.register.success_with_session", fingerprint });
@@ -240,7 +241,8 @@ export const registerAction = async (
 
     return {
       status: "success",
-      message: "Cuenta creada. Te enviamos un correo de confirmacion. Abre el enlace para activar tu acceso.",
+      message:
+        "Cuenta creada. Te enviamos un correo de confirmacion. Abre el enlace para activar tu acceso.",
     };
   } catch (error) {
     if (isNextNavigationError(error)) {

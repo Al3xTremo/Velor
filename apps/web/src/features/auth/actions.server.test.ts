@@ -102,7 +102,10 @@ describe("auth/actions server integration", () => {
     mocks.getServerSecretEnv.mockReturnValue({ OBS_ALERTS_ENABLED: "0" });
     mocks.createSupabaseServerClient.mockResolvedValue({ auth: supabaseAuth });
     supabaseAuth.signInWithPassword.mockResolvedValue({ error: null });
-    supabaseAuth.signUp.mockResolvedValue({ data: { user: { id: "u1" }, session: null }, error: null });
+    supabaseAuth.signUp.mockResolvedValue({
+      data: { user: { id: "u1" }, session: null },
+      error: null,
+    });
     supabaseAuth.resend.mockResolvedValue({ error: null });
     supabaseAuth.resetPasswordForEmail.mockResolvedValue({ error: null });
   });
@@ -171,7 +174,8 @@ describe("auth/actions server integration", () => {
 
     expect(result).toEqual({
       status: "success",
-      message: "Cuenta creada. Te enviamos un correo de confirmacion. Abre el enlace para activar tu acceso.",
+      message:
+        "Cuenta creada. Te enviamos un correo de confirmacion. Abre el enlace para activar tu acceso.",
     });
     expect(mocks.guardAuthAttempt).toHaveBeenCalledWith("fp-test", "register");
     expect(supabaseAuth.signUp).toHaveBeenCalledWith({
@@ -232,7 +236,8 @@ describe("auth/actions server integration", () => {
 
     expect(result).toEqual({
       status: "success",
-      message: "Cuenta creada. Te enviamos un correo de confirmacion. Abre el enlace para activar tu acceso.",
+      message:
+        "Cuenta creada. Te enviamos un correo de confirmacion. Abre el enlace para activar tu acceso.",
     });
   });
 
